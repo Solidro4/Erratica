@@ -1,0 +1,37 @@
+[
+  {
+    "prompt": "Customer says order #41327 was returned two weeks ago and the refund still has not arrived.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": ["refund", "order"],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says order #55210 arrived damaged and asks for a replacement.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": ["replacement", "order"],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says order #77110 has had no tracking updates for five days and asks what happens next.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": ["shipment", "order"],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says they were charged twice for the same subscription renewal and wants the duplicate charge reversed.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": ["charge", "billing"],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says they canceled last week but were still billed and wants a refund for the latest billing period.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": ["refund", "billing"],
+    "preferred_format": "numbered_list"
+  }
+]

@@ -1,0 +1,11 @@
+[project]
+name = "synora"
+version = "0.1.0"
+description = "Local AI runtime that learns from real usage by replaying failures, validating fixes, and promoting only measured improvements."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
