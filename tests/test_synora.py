@@ -6,6 +6,17 @@ from pathlib import Path
 
 from synora.cli.demo import render_demo
 from synora.engine.runner import Synora, RuleAwareDemoModel
+from synora.learning.evaluator import PatchEvaluator
+from synora.learning.replay import ReplayCase
+
+
+class FixedSimilarityScorer:
+    name = "fixed_test"
+
+    def score(self, reference: str, candidate: str) -> float:
+        if "approving the refund" in candidate:
+            return 0.95
+        return 0.05
 
 
 class ReplayLoopTests(unittest.TestCase):
@@ -75,6 +86,27 @@ class ReplayLoopTests(unittest.TestCase):
         self.assertIn("Status: PROMOTED", output)
         self.assertIn("Ideal response:", output)
         self.assertIn("Resolution:", output)
+
+    def test_evaluator_accepts_custom_similarity_scorer(self) -> None:
+        evaluator = PatchEvaluator(similarity_scorer=FixedSimilarityScorer())
+        case = ReplayCase(
+            interaction_id=1,
+            prompt="Customer says order #41327 was returned two weeks ago and the refund still has not arrived.",
+            baseline_response="Thanks for reaching out. We are reviewing the issue and will follow up soon.",
+            route="support",
+            issue_type="missing_resolution",
+            required_terms=["refund", "order"],
+            preferred_format="numbered_list",
+            ideal_response="I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete.",
+            correction=None,
+            notes="too vague, no resolution",
+        )
+        summary = evaluator.evaluate(
+            [case],
+            [{"interaction_id": 1, "route": "support", "response": case.baseline_response}],
+            [{"interaction_id": 1, "route": "support", "response": "I reviewed your request about your refund request.\n1. Reference: order 41327\n2. Resolution: we are approving the refund back to the original payment method\n3. Timeline: 3-5 business days\n4. Next step: we will send a confirmation update as soon as the action is complete."}],
+        )
+        self.assertGreater(summary.score_after, summary.score_before)
 
 
 if __name__ == "__main__":

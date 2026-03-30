@@ -12,6 +12,7 @@ from synora.learning.evaluator import PatchEvaluator
 from synora.learning.patcher import PromptRulePatcher
 from synora.learning.promoter import PatchPromoter, PromotionDecision
 from synora.learning.replay import ReplayDatasetBuilder, ReplayRunner
+from synora.learning.similarity import SimilarityScorer
 from synora.policy.prompt_rules import PromptPolicy
 from synora.policy.routing import RoutingPolicy
 from synora.storage.db import Database
@@ -164,6 +165,7 @@ class Synora:
         db_path: str | Path = Path("data") / "synora.db",
         *,
         model: ModelAdapter | None = None,
+        similarity_scorer: SimilarityScorer | None = None,
     ) -> None:
         self.db = Database(db_path)
         self.memory = MemoryStore(self.db)
@@ -175,7 +177,7 @@ class Synora:
         self.patcher = PromptRulePatcher()
         self.dataset_builder = ReplayDatasetBuilder()
         self.replay_runner = ReplayRunner(self.model, self.policy, self.router)
-        self.evaluator = PatchEvaluator()
+        self.evaluator = PatchEvaluator(similarity_scorer=similarity_scorer)
         self.promoter = PatchPromoter(self.db, self.policy)
 
     def generate(

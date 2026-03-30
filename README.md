@@ -101,8 +101,21 @@ python -m synora.cli.dashboard
 - Domain: support ticket replies
 - Storage: SQLite
 - Patch type: learned prompt rules
-- Evaluator: domain-aware checks for entities, structure, resolution, and timeframe
+- Evaluator: domain-aware checks plus pluggable ideal-response similarity scoring
 - Replay set: `datasets/support_replay_cases.json` with feedback signals and ideal responses
+
+## Evaluation System
+
+Synora uses a pluggable similarity layer to evaluate improvements.
+
+Current options:
+
+- Hybrid string similarity: default, fast, local
+- Semantic similarity: optional, via embeddings
+
+The evaluator can be swapped without changing the replay loop.
+
+This allows Synora to evolve from simple scoring to advanced semantic evaluation while keeping the same learning architecture.
 
 ## Using A Real Local Model
 
@@ -115,6 +128,15 @@ from synora.engine.llama_cpp_adapter import LlamaCppModel
 model = LlamaCppModel(model_path="models/mistral-7b-instruct.Q4_K_M.gguf")
 ai = Synora(model=model)
 ```
+
+```python
+from synora import EmbeddingSimilarityScorer, Synora
+
+similarity = EmbeddingSimilarityScorer()
+ai = Synora(similarity_scorer=similarity)
+```
+
+That lets you move from string matching toward semantic correctness once you have a local embedding model available.
 
 ## Next Steps
 
