@@ -27,13 +27,15 @@ too vague, no resolution
 
 Replaying 5 past failures...
 
-Score before: 0.00  
-Score after: 0.87
+Score before: **0.00**  
+Score after: **0.87**
 
-Patch:  
+---
+
+**Patch:**  
 For support replies, restate the issue, provide a concrete resolution, and include a timeline.
 
-Status: **PROMOTED**
+**Status:** **PROMOTED**
 
 ---
 
@@ -57,7 +59,9 @@ Most AI systems:
 
 Synora introduces a different approach:
 
-`observe -> store -> patch -> replay -> validate -> promote`
+```text
+observe -> store -> patch -> replay -> validate -> promote
+```
 
 It does not retrain weights in the MVP.
 
