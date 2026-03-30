@@ -65,7 +65,25 @@ Most AI systems:
 Synora introduces a different approach:
 
 ```text
-observe -> store -> patch -> replay -> validate -> promote
+User Prompt
+   |
+   v
+Initial Response
+   |
+   v
+Feedback
+   |
+   v
+Behavior Update Proposal
+   |
+   v
+Replay on Past Failures
+   |
+   v
+Score Comparison
+   |
+   v
+Promote or Reject
 ```
 
 It does not retrain weights in the MVP.
@@ -94,6 +112,7 @@ The novelty is the **validated improvement loop**.
 python -m unittest -v
 python -m synora.cli.demo
 python -m synora.cli.dashboard
+python -m synora.cli.benchmark
 ```
 
 ## Current Scope
@@ -116,6 +135,27 @@ Current options:
 The evaluator can be swapped without changing the replay loop.
 
 This allows Synora to evolve from simple scoring to advanced semantic evaluation while keeping the same learning architecture.
+
+## Benchmark Mode
+
+Run:
+
+```bash
+python -m synora.cli.benchmark
+```
+
+Benchmark mode replays multiple support cases, prints per-case improvements, reports the average score shift, and shows both promoted and rejected behavior updates so Synora can prove it does not blindly accept every change.
+
+```text
+Case improvements:
+- refund delay: 0.03 -> 0.87
+- damaged item: 0.03 -> 0.73
+- billing issue: 0.03 -> 1.00
+
+Behavior update outcomes:
+- prompt_rule | REJECTED | 0.03 -> 0.02
+- prompt_rule | PROMOTED | 0.03 -> 0.89
+```
 
 ## Using A Real Local Model
 

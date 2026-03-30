@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from synora.cli.benchmark import render_benchmark
 from synora.cli.demo import render_demo
 from synora.engine.runner import Synora, RuleAwareDemoModel
 from synora.learning.evaluator import PatchEvaluator
@@ -107,6 +108,15 @@ class ReplayLoopTests(unittest.TestCase):
             [{"interaction_id": 1, "route": "support", "response": "I reviewed your request about your refund request.\n1. Reference: order 41327\n2. Resolution: we are approving the refund back to the original payment method\n3. Timeline: 3-5 business days\n4. Next step: we will send a confirmation update as soon as the action is complete."}],
         )
         self.assertGreater(summary.score_after, summary.score_before)
+
+    def test_benchmark_render_shows_promoted_and_rejected_updates(self) -> None:
+        dataset_path = Path(__file__).resolve().parents[1] / "datasets" / "support_replay_cases.json"
+        output = render_benchmark(dataset_path)
+        self.assertIn("=== Synora Benchmark ===", output)
+        self.assertIn("Case improvements:", output)
+        self.assertIn("Behavior update outcomes:", output)
+        self.assertIn("REJECTED", output)
+        self.assertIn("PROMOTED", output)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,9 @@ class RuleAwareDemoModel:
         return "Quarterly revenue was healthy overall, with strong performance across the portfolio."
 
     def _support_response(self, prompt: str, system_prompt: str) -> str:
+        if self._mentions_any(system_prompt, ("single short sentence", "avoid timelines", "avoid detail")):
+            return "Received. We will review it."
+
         required_terms = self._extract_required_terms(system_prompt)
         wants_resolution = self._mentions_any(
             system_prompt,
