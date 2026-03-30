@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     issue_type TEXT NOT NULL,
     required_terms_json TEXT,
     preferred_format TEXT,
+    ideal_response TEXT,
     correction TEXT,
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

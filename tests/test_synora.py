@@ -25,6 +25,7 @@ class ReplayLoopTests(unittest.TestCase):
                     issue_type="missing_resolution",
                     required_terms=["refund", "order"],
                     preferred_format="numbered_list",
+                    ideal_response="I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete.",
                     notes="too vague, no resolution",
                 )
 
@@ -54,6 +55,7 @@ class ReplayLoopTests(unittest.TestCase):
                     issue_type="missing_resolution",
                     required_terms=["order", "replacement"],
                     preferred_format="numbered_list",
+                    ideal_response="I reviewed your request about a damaged item delivery. 1. Reference: order 55210 2. Resolution: we are sending a replacement shipment at no extra cost 3. Timeline: 1 business day 4. Next step: we will send a confirmation update as soon as the action is complete.",
                     notes="too vague, no resolution",
                 )
                 ai.run_learning_cycle()
@@ -71,6 +73,7 @@ class ReplayLoopTests(unittest.TestCase):
         self.assertIn("=== Synora Demo ===", output)
         self.assertIn("Replaying 5 failures...", output)
         self.assertIn("Status: PROMOTED", output)
+        self.assertIn("Ideal response:", output)
         self.assertIn("Resolution:", output)
 
 

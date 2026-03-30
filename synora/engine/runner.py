@@ -210,6 +210,7 @@ class Synora:
         issue_type: str,
         required_terms: list[str] | None = None,
         preferred_format: str | None = None,
+        ideal_response: str | None = None,
         correction: str | None = None,
         notes: str | None = None,
     ) -> int:
@@ -219,6 +220,7 @@ class Synora:
             issue_type=issue_type,
             required_terms=required_terms,
             preferred_format=preferred_format,
+            ideal_response=ideal_response,
             correction=correction,
             notes=notes,
         )

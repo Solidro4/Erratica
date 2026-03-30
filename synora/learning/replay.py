@@ -15,6 +15,7 @@ class ReplayCase:
     issue_type: str
     required_terms: list[str]
     preferred_format: str | None
+    ideal_response: str | None
     correction: str | None
     notes: str | None
 
@@ -35,6 +36,7 @@ class ReplayDatasetBuilder:
             issue_type=str(failure["issue_type"]),
             required_terms=list(failure.get("required_terms", [])),
             preferred_format=failure.get("preferred_format"),
+            ideal_response=failure.get("ideal_response"),
             correction=failure.get("correction"),
             notes=failure.get("notes"),
         )

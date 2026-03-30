@@ -19,6 +19,7 @@ class Database:
 
     def init_schema(self) -> None:
         self.connection.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        self._ensure_column("feedback", "ideal_response", "TEXT")
         self.connection.commit()
 
     def insert_interaction(
@@ -60,6 +61,7 @@ class Database:
         issue_type: str,
         required_terms: list[str] | None,
         preferred_format: str | None,
+        ideal_response: str | None,
         correction: str | None,
         notes: str | None,
     ) -> int:
@@ -67,9 +69,9 @@ class Database:
             """
             INSERT INTO feedback (
                 interaction_id, rating, issue_type, required_terms_json,
-                preferred_format, correction, notes
+                preferred_format, ideal_response, correction, notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 interaction_id,
@@ -77,6 +79,7 @@ class Database:
                 issue_type,
                 self._dump_json(required_terms or []),
                 preferred_format,
+                ideal_response,
                 correction,
                 notes,
             ),
@@ -98,6 +101,7 @@ class Database:
                 f.issue_type,
                 f.required_terms_json,
                 f.preferred_format,
+                f.ideal_response,
                 f.correction,
                 f.notes,
                 f.created_at AS feedback_created_at
@@ -274,6 +278,13 @@ class Database:
 
     def close(self) -> None:
         self.connection.close()
+
+    def _ensure_column(self, table: str, column: str, column_type: str) -> None:
+        rows = self.connection.execute(f"PRAGMA table_info({table})").fetchall()
+        existing = {row["name"] for row in rows}
+        if column in existing:
+            return
+        self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
     def _count(self, table: str, where: str | None = None) -> int:
         query = f"SELECT COUNT(*) AS count FROM {table}"

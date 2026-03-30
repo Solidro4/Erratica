@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -59,6 +60,9 @@ class PatchEvaluator:
 
         if case.preferred_format:
             checks.append(1.0 if self._matches_format(case.preferred_format, response) else 0.0)
+
+        if case.ideal_response:
+            checks.append(self._score_against_ideal(case.ideal_response, response))
 
         issue_score = self._score_issue(case, response)
         if issue_score is not None:
@@ -122,6 +126,21 @@ class PatchEvaluator:
         response_numbers = set(re.findall(r"\$?[0-9]+(?:\.[0-9]+)?[MK]?", response))
         return response_numbers.issubset(prompt_numbers)
 
+    def _score_against_ideal(self, ideal_response: str, response: str) -> float:
+        ideal_normalized = self._normalize_text(ideal_response)
+        response_normalized = self._normalize_text(response)
+        sequence_score = difflib.SequenceMatcher(
+            None,
+            ideal_normalized,
+            response_normalized,
+        ).ratio()
+        ideal_tokens = self._extract_similarity_tokens(ideal_normalized)
+        if not ideal_tokens:
+            return sequence_score
+        token_hits = sum(token in response_normalized for token in ideal_tokens)
+        token_score = token_hits / len(ideal_tokens)
+        return (sequence_score + token_score) / 2.0
+
     def _expected_support_entities(self, prompt: str, required_terms: list[str]) -> list[str]:
         expected: list[str] = []
         lowered = prompt.lower()
@@ -159,6 +178,24 @@ class PatchEvaluator:
 
     def _has_timeframe(self, response_lower: str) -> bool:
         return bool(re.search(r"\b(?:\d+\s*-\s*\d+|\d+)\s+(?:business days|hours|day)\b", response_lower))
+
+    def _normalize_text(self, text: str) -> str:
+        lowered = text.lower().replace("–", "-")
+        normalized = re.sub(r"\s+", " ", lowered)
+        return normalized.strip()
+
+    def _extract_similarity_tokens(self, text: str) -> list[str]:
+        tokens = re.findall(r"[a-z0-9\-]{4,}", text)
+        seen: set[str] = set()
+        filtered: list[str] = []
+        for token in tokens:
+            if token in {"that", "with", "will", "from", "your", "have", "once"}:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            filtered.append(token)
+        return filtered[:12]
 
     def _average(self, scores: list[float]) -> float:
         if not scores:

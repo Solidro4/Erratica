@@ -23,12 +23,17 @@ too vague, no resolution
 
 ---
 
+**Ideal response**  
+I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete.
+
+---
+
 **Applying patch...**
 
 Replaying 5 past failures...
 
-Score before: **0.00**  
-Score after: **0.87**
+Score before: **0.03**  
+Score after: **0.89**
 
 ---
 
@@ -97,7 +102,7 @@ python -m synora.cli.dashboard
 - Storage: SQLite
 - Patch type: learned prompt rules
 - Evaluator: domain-aware checks for entities, structure, resolution, and timeframe
-- Replay set: `datasets/support_replay_cases.json`
+- Replay set: `datasets/support_replay_cases.json` with feedback signals and ideal responses
 
 ## Using A Real Local Model
 

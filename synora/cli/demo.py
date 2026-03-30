@@ -27,6 +27,7 @@ def render_demo(dataset_path: str | Path) -> str:
                 issue_type=focus_case["issue_type"],
                 required_terms=focus_case.get("required_terms"),
                 preferred_format=focus_case.get("preferred_format"),
+                ideal_response=focus_case.get("ideal_response"),
                 notes=focus_case["feedback"],
             )
 
@@ -38,6 +39,7 @@ def render_demo(dataset_path: str | Path) -> str:
                     issue_type=case["issue_type"],
                     required_terms=case.get("required_terms"),
                     preferred_format=case.get("preferred_format"),
+                    ideal_response=case.get("ideal_response"),
                     notes=case["feedback"],
                 )
 
@@ -56,6 +58,9 @@ def render_demo(dataset_path: str | Path) -> str:
                 "",
                 "Feedback:",
                 focus_case["feedback"],
+                "",
+                "Ideal response:",
+                focus_case.get("ideal_response", "not provided"),
                 "",
                 "Applying patch...",
                 "",

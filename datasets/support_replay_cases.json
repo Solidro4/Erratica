@@ -4,34 +4,39 @@
     "feedback": "too vague, no resolution",
     "issue_type": "missing_resolution",
     "required_terms": ["refund", "order"],
-    "preferred_format": "numbered_list"
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete."
   },
   {
     "prompt": "Customer says order #55210 arrived damaged and asks for a replacement.",
-    "feedback": "too vague, no resolution",
+    "feedback": "acknowledged the issue but gave no replacement plan",
     "issue_type": "missing_resolution",
     "required_terms": ["replacement", "order"],
-    "preferred_format": "numbered_list"
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about a damaged item delivery. 1. Reference: order 55210 2. Resolution: we are sending a replacement shipment at no extra cost 3. Timeline: 1 business day 4. Next step: we will send a confirmation update as soon as the action is complete."
   },
   {
     "prompt": "Customer says order #77110 has had no tracking updates for five days and asks what happens next.",
-    "feedback": "too vague, no resolution",
+    "feedback": "missing timeline and next step",
     "issue_type": "missing_resolution",
     "required_terms": ["shipment", "order"],
-    "preferred_format": "numbered_list"
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about a shipment delay. 1. Reference: order 77110 2. Resolution: we are escalating the stalled shipment to the carrier and checking the delivery scan 3. Timeline: 24 hours 4. Next step: we will send a confirmation update as soon as the action is complete."
   },
   {
     "prompt": "Customer says they were charged twice for the same subscription renewal and wants the duplicate charge reversed.",
-    "feedback": "too vague, no resolution",
+    "feedback": "no clear billing resolution",
     "issue_type": "missing_resolution",
     "required_terms": ["charge", "billing"],
-    "preferred_format": "numbered_list"
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about a duplicate charge on the account. 1. Resolution: we are reversing the duplicate charge and confirming the corrected balance 2. Timeline: 2-3 business days 3. Next step: we will confirm the change once it has been applied."
   },
   {
     "prompt": "Customer says they canceled last week but were still billed and wants a refund for the latest billing period.",
-    "feedback": "too vague, no resolution",
+    "feedback": "unclear refund policy and next step",
     "issue_type": "missing_resolution",
     "required_terms": ["refund", "billing"],
-    "preferred_format": "numbered_list"
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about your refund request. 1. Resolution: we are approving the refund back to the original payment method 2. Timeline: 3-5 business days 3. Next step: we will confirm the change once it has been applied."
   }
 ]
