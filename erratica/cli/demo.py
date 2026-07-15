@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from synora import Synora
+from erratica import Erratica
 
 _DEFAULT_DATASET = Path(__file__).resolve().parents[2] / "datasets" / "support_replay_cases.json"
 
@@ -17,7 +17,7 @@ def load_cases(path: str | Path) -> list[dict]:
 def render_demo(dataset_path: str | Path) -> str:
     cases = load_cases(dataset_path)
     with tempfile.TemporaryDirectory() as tempdir:
-        ai = Synora(db_path=Path(tempdir) / "support_demo.db")
+        ai = Erratica(db_path=Path(tempdir) / "support_demo.db")
         try:
             focus_case = cases[0]
             first = ai.generate(focus_case["prompt"])
@@ -48,7 +48,7 @@ def render_demo(dataset_path: str | Path) -> str:
             improved = ai.generate(focus_case["prompt"])
 
             lines = [
-                "=== Synora Demo ===",
+                "=== Erratica Demo ===",
                 "",
                 "Prompt:",
                 focus_case["prompt"],
@@ -81,7 +81,7 @@ def render_demo(dataset_path: str | Path) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the support-ticket Synora demo.")
+    parser = argparse.ArgumentParser(description="Run the support-ticket Erratica demo.")
     parser.add_argument("--dataset", default=str(_DEFAULT_DATASET), help="Path to a replay dataset JSON file.")
     args = parser.parse_args()
     print(render_demo(args.dataset))

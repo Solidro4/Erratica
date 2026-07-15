@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from synora.storage.db import Database
+from erratica.storage.db import Database
 
 
 class ModelCardBuilder:
-    """Generates a verifiable model card from a Synora learning database.
+    """Generates a verifiable model card from a Erratica learning database.
 
-    Every model improved with Synora can be published together with a card
+    Every model improved with Erratica can be published together with a card
     that documents what it learned, how each change was validated, and what
     was rejected or quarantined. The card is built entirely from the audit
     trail, so the claims on it are reproducible from the database.
@@ -32,7 +32,7 @@ class ModelCardBuilder:
         lines = [
             f"# Model Card: {model_name}",
             "",
-            f"Improved with [Synora](https://github.com/Solidro4/Synora) - generated on {date.today().isoformat()}.",
+            f"Improved with [Erratica](https://github.com/Solidro4/Erratica) - generated on {date.today().isoformat()}.",
             "",
             "This model does not just ship as-is: it carries validated experience",
             "learned from real usage. Every behavior change below was replayed",
@@ -75,10 +75,10 @@ class ModelCardBuilder:
                 "",
                 "## How This Card Was Produced",
                 "",
-                "All numbers come from the Synora audit trail (SQLite). To reproduce:",
+                "All numbers come from the Erratica audit trail (SQLite). To reproduce:",
                 "",
                 "```bash",
-                "python -m synora.cli.modelcard --db data/synora.db",
+                "python -m erratica.cli.modelcard --db data/erratica.db",
                 "```",
                 "",
             ]

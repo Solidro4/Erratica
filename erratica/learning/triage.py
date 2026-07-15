@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from synora.learning.clustering import FailureCluster
+from erratica.learning.clustering import FailureCluster
 
 _LIST_FORMATS = {"bullet_list", "numbered_list"}
 

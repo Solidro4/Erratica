@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from synora.learning.replay import ReplayCase
-from synora.learning.similarity import HybridStringSimilarityScorer, SimilarityScorer
+from erratica.learning.replay import ReplayCase
+from erratica.learning.similarity import HybridStringSimilarityScorer, SimilarityScorer
 
 
 @dataclass

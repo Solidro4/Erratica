@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from synora.storage.db import Database
+from erratica.storage.db import Database
 
 
 class ExampleStore:

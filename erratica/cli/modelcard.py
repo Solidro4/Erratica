@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import argparse
 
-from synora import Synora
+from erratica import Erratica
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate a verifiable model card from the Synora learning database."
+        description="Generate a verifiable model card from the Erratica learning database."
     )
-    parser.add_argument("--db", default="data/synora.db", help="Path to the SQLite database.")
+    parser.add_argument("--db", default="data/erratica.db", help="Path to the SQLite database.")
     parser.add_argument("--name", default="local model", help="Name of the model being published.")
     parser.add_argument("--out", default=None, help="Optional path to write the card as Markdown.")
     args = parser.parse_args()
 
-    ai = Synora(db_path=args.db)
+    ai = Erratica(db_path=args.db)
     try:
         card = ai.model_card(model_name=args.name)
         if args.out:

@@ -4,15 +4,15 @@ import argparse
 import tempfile
 from pathlib import Path
 
-from synora import Synora
-from synora.cli.demo import _DEFAULT_DATASET, load_cases
-from synora.learning.patcher import PatchProposal
+from erratica import Erratica
+from erratica.cli.demo import _DEFAULT_DATASET, load_cases
+from erratica.learning.patcher import PatchProposal
 
 
 def render_benchmark(dataset_path: str | Path) -> str:
     cases = load_cases(dataset_path)
     with tempfile.TemporaryDirectory() as tempdir:
-        ai = Synora(db_path=Path(tempdir) / "benchmark.db")
+        ai = Erratica(db_path=Path(tempdir) / "benchmark.db")
         try:
             for case in cases:
                 result = ai.generate(case["prompt"])
@@ -43,7 +43,7 @@ def render_benchmark(dataset_path: str | Path) -> str:
                 patch_type="prompt_rule",
                 target="system_prompt",
                 rule_text="Respond in a single short sentence, avoid detail, and avoid timelines.",
-                rationale="Control behavior update used to verify that Synora rejects degraded policies.",
+                rationale="Control behavior update used to verify that Erratica rejects degraded policies.",
                 source_issue_type="control",
             )
             rejected_results = ai.replay_runner.run(replay_cases, extra_rules=[rejected_proposal.rule_text])
@@ -53,7 +53,7 @@ def render_benchmark(dataset_path: str | Path) -> str:
             accepted_decision = ai.promoter.promote(accepted_proposal, accepted_evaluation)
 
             lines = [
-                "=== Synora Benchmark ===",
+                "=== Erratica Benchmark ===",
                 "",
                 "Learning flow:",
                 "User Prompt",
@@ -130,7 +130,7 @@ def format_relative_gain(before: float, after: float) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Synora benchmark mode.")
+    parser = argparse.ArgumentParser(description="Run the Erratica benchmark mode.")
     parser.add_argument("--dataset", default=str(_DEFAULT_DATASET), help="Path to a replay dataset JSON file.")
     args = parser.parse_args()
     print(render_benchmark(args.dataset))

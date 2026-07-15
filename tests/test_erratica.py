@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synora.cli.benchmark import render_benchmark
-from synora.cli.demo import render_demo
-from synora.engine.runner import Synora, RuleAwareDemoModel
-from synora.learning.clustering import FailureCluster
-from synora.learning.evaluator import PatchEvaluator
-from synora.learning.replay import ReplayCase
-from synora.learning.triage import MistakeTriage
+from erratica.cli.benchmark import render_benchmark
+from erratica.cli.demo import render_demo
+from erratica.engine.runner import Erratica, RuleAwareDemoModel
+from erratica.learning.clustering import FailureCluster
+from erratica.learning.evaluator import PatchEvaluator
+from erratica.learning.replay import ReplayCase
+from erratica.learning.triage import MistakeTriage
 
 
 class FixedSimilarityScorer:
@@ -26,8 +26,8 @@ class FixedSimilarityScorer:
 class ReplayLoopTests(unittest.TestCase):
     def test_learning_cycle_promotes_support_resolution_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            db_path = Path(tempdir) / "synora.db"
-            ai = Synora(db_path=db_path, model=RuleAwareDemoModel())
+            db_path = Path(tempdir) / "erratica.db"
+            ai = Erratica(db_path=db_path, model=RuleAwareDemoModel())
             try:
                 prompt = "Customer says order #41327 was returned two weeks ago and the refund still has not arrived."
 
@@ -59,8 +59,8 @@ class ReplayLoopTests(unittest.TestCase):
 
     def test_dashboard_tracks_promoted_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            db_path = Path(tempdir) / "synora.db"
-            ai = Synora(db_path=db_path, model=RuleAwareDemoModel())
+            db_path = Path(tempdir) / "erratica.db"
+            ai = Erratica(db_path=db_path, model=RuleAwareDemoModel())
             try:
                 prompt = "Customer says order #55210 was delivered damaged and wants a replacement."
                 result = ai.generate(prompt)
@@ -85,7 +85,7 @@ class ReplayLoopTests(unittest.TestCase):
     def test_demo_render_shows_promoted_patch(self) -> None:
         dataset_path = Path(__file__).resolve().parents[1] / "datasets" / "support_replay_cases.json"
         output = render_demo(dataset_path)
-        self.assertIn("=== Synora Demo ===", output)
+        self.assertIn("=== Erratica Demo ===", output)
         self.assertIn("Replaying 5 failures...", output)
         self.assertIn("Status: PROMOTED", output)
         self.assertIn("Ideal response:", output)
@@ -115,7 +115,7 @@ class ReplayLoopTests(unittest.TestCase):
     def test_benchmark_render_shows_promoted_and_rejected_updates(self) -> None:
         dataset_path = Path(__file__).resolve().parents[1] / "datasets" / "support_replay_cases.json"
         output = render_benchmark(dataset_path)
-        self.assertIn("=== Synora Benchmark ===", output)
+        self.assertIn("=== Erratica Benchmark ===", output)
         self.assertIn("Case improvements:", output)
         self.assertIn("Behavior update outcomes:", output)
         self.assertIn("REJECTED", output)
@@ -193,7 +193,7 @@ class WeightLoopTests(unittest.TestCase):
         "4. Next step: we will send a confirmation update as soon as the action is complete."
     )
 
-    def _seed(self, ai: Synora) -> None:
+    def _seed(self, ai: Erratica) -> None:
         result = ai.generate(self._PROMPT)
         ai.learn_from_feedback(
             interaction_id=result.interaction_id,
@@ -207,7 +207,7 @@ class WeightLoopTests(unittest.TestCase):
 
     def test_winning_fine_tune_is_promoted_and_swapped_in(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 self._seed(ai)
                 original_model = ai.model
@@ -228,7 +228,7 @@ class WeightLoopTests(unittest.TestCase):
 
     def test_degraded_fine_tune_is_rejected_and_model_kept(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 self._seed(ai)
                 ai.run_learning_cycle()
@@ -244,7 +244,7 @@ class WeightLoopTests(unittest.TestCase):
 
     def test_weight_cycle_without_experience_is_a_no_op(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 original_model = ai.model
                 report = ai.run_weight_cycle(
@@ -269,7 +269,7 @@ class LearningUpgradeTests(unittest.TestCase):
 
     def test_few_shot_example_promoted_when_rule_patch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 result = ai.generate(self._REFUND_PROMPT)
                 ai.learn_from_feedback(
@@ -296,7 +296,7 @@ class LearningUpgradeTests(unittest.TestCase):
 
     def test_experience_recall_improves_similar_prompts_without_learning_cycle(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 result = ai.generate(self._REFUND_PROMPT)
                 self.assertNotIn("Resolution:", result.text)
@@ -318,7 +318,7 @@ class LearningUpgradeTests(unittest.TestCase):
 
     def test_quarantined_mistakes_are_skipped_and_audited(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 result = ai.generate("Customer asks about their support ticket status.")
                 ai.learn_from_feedback(
@@ -339,7 +339,7 @@ class LearningUpgradeTests(unittest.TestCase):
 
     def test_model_card_documents_learning_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 result = ai.generate(self._REFUND_PROMPT)
                 ai.learn_from_feedback(
@@ -366,7 +366,7 @@ class LearningUpgradeTests(unittest.TestCase):
 
     def test_export_training_data_writes_chat_format_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            ai = Synora(db_path=Path(tempdir) / "synora.db", model=RuleAwareDemoModel())
+            ai = Erratica(db_path=Path(tempdir) / "erratica.db", model=RuleAwareDemoModel())
             try:
                 result = ai.generate(self._REFUND_PROMPT)
                 ai.learn_from_feedback(

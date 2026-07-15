@@ -1,6 +1,6 @@
 [project]
-name = "synora"
-version = "0.3.0"
+name = "erratica"
+version = "0.4.0"
 description = "Local AI runtime that learns from real usage by replaying failures, validating fixes, and promoting only measured improvements."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,12 +36,12 @@ llama = ["llama-cpp-python>=0.2"]
 embeddings = ["sentence-transformers>=2.2"]
 
 [project.urls]
-Homepage = "https://github.com/Solidro4/Synora"
-Issues = "https://github.com/Solidro4/Synora/issues"
+Homepage = "https://github.com/Solidro4/Erratica"
+Issues = "https://github.com/Solidro4/Erratica/issues"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["synora*"]
+include = ["erratica*"]
