@@ -5,21 +5,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from synora.engine.feedback import FeedbackIngestor
-from synora.engine.memory import MemoryStore
-from synora.learning.clustering import FailureCluster, FailureClusterer
-from synora.learning.evaluator import PatchEvaluator
-from synora.learning.exporter import ExportReport, TrainingDataExporter
-from synora.learning.modelcard import ModelCardBuilder
-from synora.learning.patcher import FewShotPatcher, PatchProposal, PromptRulePatcher
-from synora.learning.promoter import PatchPromoter, PromotionDecision
-from synora.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
-from synora.learning.similarity import SimilarityScorer
-from synora.learning.triage import MistakeTriage
-from synora.learning.weights import ModelTrainer, WeightCycleReport, WeightLoop
-from synora.policy.prompt_rules import PromptPolicy
-from synora.policy.routing import RoutingPolicy
-from synora.storage.db import Database
+from erratica.engine.feedback import FeedbackIngestor
+from erratica.engine.memory import MemoryStore
+from erratica.learning.clustering import FailureCluster, FailureClusterer
+from erratica.learning.evaluator import PatchEvaluator
+from erratica.learning.exporter import ExportReport, TrainingDataExporter
+from erratica.learning.modelcard import ModelCardBuilder
+from erratica.learning.patcher import FewShotPatcher, PatchProposal, PromptRulePatcher
+from erratica.learning.promoter import PatchPromoter, PromotionDecision
+from erratica.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
+from erratica.learning.similarity import SimilarityScorer
+from erratica.learning.triage import MistakeTriage
+from erratica.learning.weights import ModelTrainer, WeightCycleReport, WeightLoop
+from erratica.policy.prompt_rules import PromptPolicy
+from erratica.policy.routing import RoutingPolicy
+from erratica.storage.db import Database
 
 
 class ModelAdapter(Protocol):
@@ -166,10 +166,10 @@ class RuleAwareDemoModel:
         return any(token in lowered for token in tokens)
 
 
-class Synora:
+class Erratica:
     def __init__(
         self,
-        db_path: str | Path = Path("data") / "synora.db",
+        db_path: str | Path = Path("data") / "erratica.db",
         *,
         model: ModelAdapter | None = None,
         similarity_scorer: SimilarityScorer | None = None,
@@ -289,14 +289,14 @@ class Synora:
                     break
         return decisions
 
-    def export_training_data(self, path: str | Path = Path("data") / "synora_sft.jsonl") -> ExportReport:
+    def export_training_data(self, path: str | Path = Path("data") / "erratica_sft.jsonl") -> ExportReport:
         return self.exporter.export(path)
 
     def run_weight_cycle(
         self,
         trainer: ModelTrainer,
         *,
-        dataset_path: str | Path = Path("data") / "synora_sft.jsonl",
+        dataset_path: str | Path = Path("data") / "erratica_sft.jsonl",
         replay_limit: int = 200,
     ) -> WeightCycleReport:
         """Export validated experience, fine-tune, verify on replay, and swap

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from synora.learning.clustering import FailureCluster
+from erratica.learning.clustering import FailureCluster
 
 
 @dataclass

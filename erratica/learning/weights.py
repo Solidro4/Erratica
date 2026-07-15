@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from synora.learning.evaluator import PatchEvaluator
-from synora.learning.exporter import ExportReport, TrainingDataExporter
-from synora.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
-from synora.storage.db import Database
+from erratica.learning.evaluator import PatchEvaluator
+from erratica.learning.exporter import ExportReport, TrainingDataExporter
+from erratica.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
+from erratica.storage.db import Database
 
 
 class ModelTrainer(Protocol):
@@ -37,7 +37,7 @@ class WeightCycleReport:
 class WeightLoop:
     """Closes the loop from validated experience to model weights.
 
-    The same contract as every other Synora patch applies to the weights:
+    The same contract as every other Erratica patch applies to the weights:
     a fine-tuned candidate model must beat the current model on the replay
     set before it is allowed to take over. A bad fine-tune is rejected and
     the current model stays in place, so the loop can only move forward.
@@ -67,7 +67,7 @@ class WeightLoop:
         current_model: Any,
         trainer: ModelTrainer | Callable[[Path], Any],
         *,
-        dataset_path: str | Path = Path("data") / "synora_sft.jsonl",
+        dataset_path: str | Path = Path("data") / "erratica_sft.jsonl",
         replay_limit: int = 200,
     ) -> tuple[WeightCycleReport, Any]:
         """Returns the cycle report and the model to use going forward."""

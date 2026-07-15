@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from synora.policy.prompt_rules import PromptPolicy
-from synora.storage.db import Database
+from erratica.policy.prompt_rules import PromptPolicy
+from erratica.storage.db import Database
 
 
 @dataclass

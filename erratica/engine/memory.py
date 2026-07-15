@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from synora.learning.similarity import SimilarityScorer
-from synora.storage.db import Database
+from erratica.learning.similarity import SimilarityScorer
+from erratica.storage.db import Database
 
 
 class MemoryStore:

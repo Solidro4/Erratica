@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from synora.learning.evaluator import EvaluationSummary
-from synora.learning.patcher import PatchProposal
-from synora.policy.prompt_rules import PromptPolicy
-from synora.storage.db import Database
+from erratica.learning.evaluator import EvaluationSummary
+from erratica.learning.patcher import PatchProposal
+from erratica.policy.prompt_rules import PromptPolicy
+from erratica.storage.db import Database
 
 
 @dataclass

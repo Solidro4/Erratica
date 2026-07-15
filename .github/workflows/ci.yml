@@ -21,6 +21,6 @@ jobs:
       - name: Run tests
         run: python -m unittest -v
       - name: Run demo
-        run: python -m synora.cli.demo
+        run: python -m erratica.cli.demo
       - name: Run benchmark
-        run: python -m synora.cli.benchmark
+        run: python -m erratica.cli.benchmark

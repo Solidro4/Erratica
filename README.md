@@ -1,24 +1,24 @@
-# Synora
+# Erratica
 
 > Your AI should not make the same mistake twice.
 
-Synora is a local AI runtime that improves from real usage by replaying failures, validating fixes, and only promoting changes that actually work.
+Erratica is a local AI runtime that improves from real usage by replaying failures, validating fixes, and only promoting changes that actually work.
 
-Models that ship with Synora do not stay frozen after deployment: they keep learning from their own mistakes, on your hardware, with every change validated and auditable.
+Models that ship with Erratica do not stay frozen after deployment: they keep learning from their own mistakes, on your hardware, with every change validated and auditable.
 
 ## Install
 
 ```bash
-pip install synora            # core, zero dependencies
-pip install synora[llama]     # + llama-cpp-python for local .gguf models
-pip install synora[embeddings]  # + semantic similarity scoring
+pip install erratica            # core, zero dependencies
+pip install erratica[llama]     # + llama-cpp-python for local .gguf models
+pip install erratica[embeddings]  # + semantic similarity scoring
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/Solidro4/Synora
-cd Synora
+git clone https://github.com/Solidro4/Erratica
+cd Erratica
 pip install -e .
 ```
 
@@ -72,7 +72,7 @@ I reviewed your request about your refund.
 
 ---
 
-## What Is Synora?
+## What Is Erratica?
 
 Most AI systems:
 
@@ -80,7 +80,7 @@ Most AI systems:
 - repeat the same errors
 - improve only with retraining
 
-Synora introduces a different approach:
+Erratica introduces a different approach:
 
 ```text
 User Prompt
@@ -143,7 +143,7 @@ The novelty is the **validated improvement loop**.
 
 ## Mistake Triage: Good Mistakes vs Bad Mistakes
 
-Not every mistake should be learned from. Synora triages each failure cluster
+Not every mistake should be learned from. Erratica triages each failure cluster
 with pure math in a single O(n) pass, no model calls, no dependencies:
 
 - **Reference strength**: fraction of cases carrying a user-approved answer
@@ -161,7 +161,7 @@ stay on record and become learnable once more evidence arrives.
 
 ## The Learning Ladder
 
-For each learnable cluster, Synora escalates through patch types until one
+For each learnable cluster, Erratica escalates through patch types until one
 wins on replay:
 
 1. **Prompt rule**: cheapest fix, a learned instruction in the system prompt
@@ -173,10 +173,10 @@ must not regress cases from other clusters (the regression guard).
 ## Publish Your Model With a Verifiable Model Card
 
 ```bash
-python -m synora.cli.modelcard --db data/synora.db --name "my-support-model" --out MODELCARD.md
+python -m erratica.cli.modelcard --db data/erratica.db --name "my-support-model" --out MODELCARD.md
 ```
 
-Every model improved with Synora can be published with a card that documents,
+Every model improved with Erratica can be published with a card that documents,
 from the audit trail, exactly what it learned: promoted behavior updates with
 their measured score gains, rejected updates (proof the loop is selective),
 quarantined noise, and the size of its validated fine-tuning dataset. Anyone
@@ -185,13 +185,13 @@ holding the database can reproduce every number on the card.
 ## From Mistakes to Weights
 
 ```bash
-python -m synora.cli.export --db data/synora.db --out data/synora_sft.jsonl
+python -m erratica.cli.export --db data/erratica.db --out data/erratica_sft.jsonl
 ```
 
 Every user correction and every promoted example exports as a chat-format
 JSONL record (system / user / assistant). Fine-tune a small local model on it
 with unsloth, axolotl, or llama.cpp LoRA training, then load the tuned
-`.gguf` back into Synora. Prompt-level learning keeps the model sharp between
+`.gguf` back into Erratica. Prompt-level learning keeps the model sharp between
 fine-tunes; each fine-tune bakes the accumulated experience into the weights.
 This is how a small local model keeps improving on low-end hardware.
 
@@ -202,8 +202,8 @@ the same contract as every other patch: the fine-tuned model must beat the
 current model on replay, or it is rejected and nothing changes.
 
 ```python
-from synora import Synora
-from synora.engine.llama_cpp_adapter import LlamaCppModel
+from erratica import Erratica
+from erratica.engine.llama_cpp_adapter import LlamaCppModel
 
 
 class MyLoraTrainer:
@@ -214,7 +214,7 @@ class MyLoraTrainer:
         return LlamaCppModel(model_path="models/tuned.gguf")
 
 
-ai = Synora(model=LlamaCppModel(model_path="models/base.gguf"))
+ai = Erratica(model=LlamaCppModel(model_path="models/base.gguf"))
 report = ai.run_weight_cycle(MyLoraTrainer())
 
 print(report.accepted)      # True only if the tuned model won on replay
@@ -231,10 +231,10 @@ promoted or rejected. A bad fine-tune can never silently replace a good model.
 
 ```bash
 python -m unittest -v
-python -m synora.cli.demo
-python -m synora.cli.dashboard
-python -m synora.cli.benchmark
-python -m synora.cli.export
+python -m erratica.cli.demo
+python -m erratica.cli.dashboard
+python -m erratica.cli.benchmark
+python -m erratica.cli.export
 ```
 
 ## Current Scope
@@ -250,7 +250,7 @@ python -m synora.cli.export
 
 ## Evaluation System
 
-Synora uses a pluggable similarity layer to evaluate improvements.
+Erratica uses a pluggable similarity layer to evaluate improvements.
 
 Current options:
 
@@ -259,17 +259,17 @@ Current options:
 
 The evaluator can be swapped without changing the replay loop.
 
-This allows Synora to evolve from simple scoring to advanced semantic evaluation while keeping the same learning architecture.
+This allows Erratica to evolve from simple scoring to advanced semantic evaluation while keeping the same learning architecture.
 
 ## Benchmark Mode
 
 Run:
 
 ```bash
-python -m synora.cli.benchmark
+python -m erratica.cli.benchmark
 ```
 
-Benchmark mode replays multiple support cases, prints per-case improvements, reports the average score shift, and shows both promoted and rejected behavior updates so Synora can prove it does not blindly accept every change.
+Benchmark mode replays multiple support cases, prints per-case improvements, reports the average score shift, and shows both promoted and rejected behavior updates so Erratica can prove it does not blindly accept every change.
 
 ```text
 Case improvements:
@@ -284,30 +284,30 @@ Behavior update outcomes:
 
 ## Using A Real Local Model
 
-The repo still runs out of the box with the deterministic demo model so the learning loop is easy to test. When you want real inference, swap in `synora.engine.llama_cpp_adapter.LlamaCppModel`:
+The repo still runs out of the box with the deterministic demo model so the learning loop is easy to test. When you want real inference, swap in `erratica.engine.llama_cpp_adapter.LlamaCppModel`:
 
 ```python
-from synora import Synora
-from synora.engine.llama_cpp_adapter import LlamaCppModel
+from erratica import Erratica
+from erratica.engine.llama_cpp_adapter import LlamaCppModel
 
 model = LlamaCppModel(model_path="models/mistral-7b-instruct.Q4_K_M.gguf")
-ai = Synora(model=model)
+ai = Erratica(model=model)
 ```
 
 ```python
-from synora import EmbeddingSimilarityScorer, Synora
+from erratica import EmbeddingSimilarityScorer, Erratica
 
 similarity = EmbeddingSimilarityScorer()
-ai = Synora(similarity_scorer=similarity)
+ai = Erratica(similarity_scorer=similarity)
 ```
 
 That lets you move from string matching toward semantic correctness once you have a local embedding model available.
 
 ## Toward More General Intelligence (Honestly)
 
-Synora will not turn a 1B-parameter model into AGI, and it does not claim to.
+Erratica will not turn a 1B-parameter model into AGI, and it does not claim to.
 What it does is close the gap that matters in practice: a frozen small model
-falls further behind every day, while a Synora-run model compounds validated
+falls further behind every day, while a Erratica-run model compounds validated
 experience in the domains where it is actually used.
 
 The roadmap toward broader capability is incremental and measurable:

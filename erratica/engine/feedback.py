@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from synora.storage.db import Database
+from erratica.storage.db import Database
 
 _STOPWORDS = {
     "the",

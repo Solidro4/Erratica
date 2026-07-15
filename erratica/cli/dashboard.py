@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 
-from synora import Synora
+from erratica import Erratica
 
 
 def render_dashboard(snapshot: dict) -> str:
     metrics = snapshot["metrics"]
     lines = [
-        "Synora Dashboard",
+        "Erratica Dashboard",
         f"Interactions: {metrics['interactions']}",
         f"Feedback items: {metrics['feedback_items']}",
         f"Promoted patches: {metrics['promoted_patches']}",
@@ -61,11 +61,11 @@ def render_dashboard(snapshot: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Show the Synora learning dashboard.")
-    parser.add_argument("--db", default="data/synora.db", help="Path to the SQLite database.")
+    parser = argparse.ArgumentParser(description="Show the Erratica learning dashboard.")
+    parser.add_argument("--db", default="data/erratica.db", help="Path to the SQLite database.")
     args = parser.parse_args()
 
-    ai = Synora(db_path=args.db)
+    ai = Erratica(db_path=args.db)
     try:
         print(render_dashboard(ai.dashboard()))
     finally:

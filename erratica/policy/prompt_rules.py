@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from synora.policy.examples import ExampleStore
-from synora.storage.db import Database
+from erratica.policy.examples import ExampleStore
+from erratica.storage.db import Database
 
 _BASE_RULES = [
     "You are a private local AI runtime.",
