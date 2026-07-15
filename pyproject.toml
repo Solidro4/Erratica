@@ -1,11 +1,47 @@
 [project]
 name = "synora"
-version = "0.1.0"
+version = "0.3.0"
 description = "Local AI runtime that learns from real usage by replaying failures, validating fixes, and promoting only measured improvements."
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Kevin Maqueda", email = "maquedakevin1180@gmail.com" },
+]
+keywords = [
+    "llm",
+    "local-ai",
+    "continual-learning",
+    "self-improvement",
+    "fine-tuning",
+    "feedback-loop",
+    "llama-cpp",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = []
+
+[project.optional-dependencies]
+llama = ["llama-cpp-python>=0.2"]
+embeddings = ["sentence-transformers>=2.2"]
+
+[project.urls]
+Homepage = "https://github.com/Solidro4/Synora"
+Issues = "https://github.com/Solidro4/Synora/issues"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["synora*"]

@@ -1,4 +1,10 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-data/*.db
+data/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+models/*.gguf

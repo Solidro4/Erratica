@@ -25,8 +25,15 @@ class ExampleStore:
     def active_examples(self, route: str, limit: int = 2) -> list[dict[str, str]]:
         return self.db.list_few_shot_examples(route=route, limit=limit)
 
-    def render(self, route: str, limit: int = 2) -> str:
+    def render(
+        self,
+        route: str,
+        limit: int = 2,
+        extra: list[dict[str, str]] | None = None,
+    ) -> str:
         examples = self.active_examples(route=route, limit=limit)
+        if extra:
+            examples = examples + list(extra)
         if not examples:
             return ""
         blocks: list[str] = []

@@ -13,6 +13,8 @@ def render_dashboard(snapshot: dict) -> str:
         f"Feedback items: {metrics['feedback_items']}",
         f"Promoted patches: {metrics['promoted_patches']}",
         f"Active rules: {metrics['active_rules']}",
+        f"Active examples: {metrics.get('active_examples', 0)}",
+        f"Quarantined clusters: {metrics.get('quarantined_clusters', 0)}",
         "",
         "Issue clusters:",
     ]
@@ -40,6 +42,18 @@ def render_dashboard(snapshot: dict) -> str:
             if patch["score_before"] is not None and patch["score_after"] is not None:
                 delta = patch["score_after"] - patch["score_before"]
             lines.append(f"- #{patch['id']} {patch['status']} ({delta:+.2f}): {content}")
+    else:
+        lines.append("- none yet")
+
+    lines.append("")
+    lines.append("Mistake triage (good vs bad mistakes):")
+    triage_entries = snapshot.get("recent_triage", [])
+    if triage_entries:
+        for entry in triage_entries:
+            lines.append(
+                f"- {entry['issue_type']} | {entry['verdict'].upper()} | "
+                f"score {entry['score']:.2f} | {entry['case_count']} case(s)"
+            )
     else:
         lines.append("- none yet")
 

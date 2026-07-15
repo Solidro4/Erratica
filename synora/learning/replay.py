@@ -53,11 +53,16 @@ class ReplayRunner:
         cases: list[ReplayCase],
         *,
         extra_rules: list[str] | None = None,
+        extra_examples: list[dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for case in cases:
             route = case.route or self.router.select_route(case.prompt)
-            system_prompt = self.policy.render_system_prompt(route=route, extra_rules=extra_rules)
+            system_prompt = self.policy.render_system_prompt(
+                route=route,
+                extra_rules=extra_rules,
+                extra_examples=extra_examples,
+            )
             response = self.model.generate(case.prompt, system_prompt, route)
             results.append(
                 {

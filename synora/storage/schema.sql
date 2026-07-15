@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS few_shot_examples (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS mistake_triage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_type TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    score REAL NOT NULL DEFAULT 0,
+    reasons_json TEXT,
+    case_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_feedback_issue_type ON feedback(issue_type);
 CREATE INDEX IF NOT EXISTS idx_feedback_interaction_id ON feedback(interaction_id);
 CREATE INDEX IF NOT EXISTS idx_patches_status ON patches(status);

@@ -13,6 +13,18 @@ class PatchProposal:
     rule_text: str
     rationale: str
     source_issue_type: str
+    route: str | None = None
+    example_prompt: str | None = None
+    example_response: str | None = None
+
+    def content(self) -> dict[str, Any]:
+        if self.patch_type == "few_shot":
+            return {
+                "route": self.route,
+                "prompt": self.example_prompt,
+                "response": self.example_response,
+            }
+        return {"rule_text": self.rule_text}
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -67,3 +79,43 @@ class PromptRulePatcher:
             rule += " Use a numbered list."
 
         return rule
+
+
+class FewShotPatcher:
+    """Proposes teaching by validated example when a rule alone is not enough.
+
+    Picks the best user-approved ideal response in the cluster and proposes it
+    as a reference example for the route. Like every patch, it only becomes
+    active after it wins the replay evaluation.
+    """
+
+    def propose(self, cluster: FailureCluster) -> PatchProposal | None:
+        best_case = self._best_reference_case(cluster)
+        if best_case is None:
+            return None
+
+        route = str(best_case.get("route") or "general")
+        reference = str(best_case.get("ideal_response") or best_case.get("correction"))
+        return PatchProposal(
+            patch_type="few_shot",
+            target="few_shot_examples",
+            rule_text=f"Add a validated reference example for route '{route}'.",
+            rationale=(
+                f"Cluster '{cluster.issue_type}' includes a user-approved ideal response; "
+                "teach the desired behavior by example."
+            ),
+            source_issue_type=cluster.issue_type,
+            route=route,
+            example_prompt=str(best_case.get("prompt")),
+            example_response=reference,
+        )
+
+    def _best_reference_case(self, cluster: FailureCluster) -> dict[str, Any] | None:
+        candidates = [
+            case
+            for case in cluster.cases
+            if case.get("ideal_response") or case.get("correction")
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda case: len(str(case.get("ideal_response") or case.get("correction"))))

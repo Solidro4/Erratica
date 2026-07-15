@@ -16,6 +16,9 @@ class PromotionDecision:
     score_after: float
     delta: float
     rule_text: str
+    patch_type: str = "prompt_rule"
+    regression_delta: float | None = None
+    reason: str = ""
 
 
 class PatchPromoter:
@@ -25,24 +28,43 @@ class PatchPromoter:
         policy: PromptPolicy,
         *,
         min_delta: float = 0.05,
+        regression_tolerance: float = 0.02,
     ) -> None:
         self.db = db
         self.policy = policy
         self.min_delta = min_delta
+        self.regression_tolerance = regression_tolerance
 
     def promote(
         self,
         proposal: PatchProposal,
         evaluation: EvaluationSummary,
+        *,
+        regression: EvaluationSummary | None = None,
     ) -> PromotionDecision:
         patch_id = self.db.insert_patch(
             patch_type=proposal.patch_type,
             target=proposal.target,
-            content={"rule_text": proposal.rule_text},
+            content=proposal.content(),
             rationale=proposal.rationale,
             source_issue_type=proposal.source_issue_type,
         )
-        accepted = evaluation.delta > self.min_delta
+
+        improved = evaluation.delta > self.min_delta
+        regression_delta = regression.delta if regression is not None else None
+        regressed = (
+            regression_delta is not None
+            and regression_delta < -self.regression_tolerance
+        )
+        accepted = improved and not regressed
+
+        if not improved:
+            reason = "insufficient improvement on replayed failures"
+        elif regressed:
+            reason = "regression on previously learned cases"
+        else:
+            reason = "validated improvement with no regression"
+
         status = "promoted" if accepted else "rejected"
         self.db.update_patch_status(
             patch_id=patch_id,
@@ -51,7 +73,7 @@ class PatchPromoter:
             score_after=evaluation.score_after,
         )
         if accepted:
-            self.policy.apply_prompt_rule(proposal.rule_text, source_patch_id=patch_id)
+            self._apply(proposal, patch_id)
 
         return PromotionDecision(
             patch_id=patch_id,
@@ -60,4 +82,17 @@ class PatchPromoter:
             score_after=evaluation.score_after,
             delta=evaluation.delta,
             rule_text=proposal.rule_text,
+            patch_type=proposal.patch_type,
+            regression_delta=regression_delta,
+            reason=reason,
         )
+
+    def _apply(self, proposal: PatchProposal, patch_id: int) -> None:
+        if proposal.patch_type == "few_shot":
+            self.policy.examples.add_example(
+                route=proposal.route or "general",
+                prompt=proposal.example_prompt or "",
+                response=proposal.example_response or "",
+            )
+            return
+        self.policy.apply_prompt_rule(proposal.rule_text, source_patch_id=patch_id)
