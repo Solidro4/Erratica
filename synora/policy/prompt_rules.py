@@ -27,6 +27,7 @@ class PromptPolicy:
         *,
         route: str,
         extra_rules: list[str] | None = None,
+        extra_examples: list[dict[str, str]] | None = None,
     ) -> str:
         lines = list(_BASE_RULES)
         lines.append(f"Current route: {route}.")
@@ -39,7 +40,7 @@ class PromptPolicy:
             for index, rule in enumerate(rules, start=1):
                 lines.append(f"{index}. {rule}")
 
-        rendered_examples = self.examples.render(route=route, limit=2)
+        rendered_examples = self.examples.render(route=route, limit=2, extra=extra_examples)
         if rendered_examples:
             lines.append("Reference examples:")
             lines.append(rendered_examples)

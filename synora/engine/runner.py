@@ -7,12 +7,16 @@ from typing import Any, Protocol
 
 from synora.engine.feedback import FeedbackIngestor
 from synora.engine.memory import MemoryStore
-from synora.learning.clustering import FailureClusterer
+from synora.learning.clustering import FailureCluster, FailureClusterer
 from synora.learning.evaluator import PatchEvaluator
-from synora.learning.patcher import PromptRulePatcher
+from synora.learning.exporter import ExportReport, TrainingDataExporter
+from synora.learning.modelcard import ModelCardBuilder
+from synora.learning.patcher import FewShotPatcher, PatchProposal, PromptRulePatcher
 from synora.learning.promoter import PatchPromoter, PromotionDecision
-from synora.learning.replay import ReplayDatasetBuilder, ReplayRunner
+from synora.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
 from synora.learning.similarity import SimilarityScorer
+from synora.learning.triage import MistakeTriage
+from synora.learning.weights import ModelTrainer, WeightCycleReport, WeightLoop
 from synora.policy.prompt_rules import PromptPolicy
 from synora.policy.routing import RoutingPolicy
 from synora.storage.db import Database
@@ -169,6 +173,7 @@ class Synora:
         *,
         model: ModelAdapter | None = None,
         similarity_scorer: SimilarityScorer | None = None,
+        enable_recall: bool = True,
     ) -> None:
         self.db = Database(db_path)
         self.memory = MemoryStore(self.db)
@@ -177,11 +182,15 @@ class Synora:
         self.router = RoutingPolicy()
         self.model = model or RuleAwareDemoModel()
         self.clusterer = FailureClusterer()
+        self.triage = MistakeTriage()
         self.patcher = PromptRulePatcher()
+        self.few_shot_patcher = FewShotPatcher()
         self.dataset_builder = ReplayDatasetBuilder()
         self.replay_runner = ReplayRunner(self.model, self.policy, self.router)
         self.evaluator = PatchEvaluator(similarity_scorer=similarity_scorer)
         self.promoter = PatchPromoter(self.db, self.policy)
+        self.exporter = TrainingDataExporter(self.db, self.policy)
+        self.enable_recall = enable_recall
 
     def generate(
         self,
@@ -191,7 +200,17 @@ class Synora:
     ) -> GenerationResult:
         route = self.router.select_route(prompt)
         policy_version = self.policy.version()
-        system_prompt = self.policy.render_system_prompt(route=route)
+        recalled_examples: list[dict[str, str]] = []
+        if self.enable_recall:
+            recalled_examples = self.memory.similar_corrections(
+                prompt=prompt,
+                route=route,
+                scorer=self.evaluator.similarity_scorer,
+            )
+        system_prompt = self.policy.render_system_prompt(
+            route=route,
+            extra_examples=recalled_examples or None,
+        )
         response = self.model.generate(prompt, system_prompt, route)
         interaction_id = self.memory.record_interaction(
             prompt=prompt,
@@ -235,15 +254,110 @@ class Synora:
         clusters = self.clusterer.cluster(failures)
         decisions: list[PromotionDecision] = []
         for cluster in clusters:
-            proposal = self.patcher.propose(cluster)
+            verdict = self.triage.review(cluster)
+            self.db.insert_triage(
+                issue_type=cluster.issue_type,
+                verdict=verdict.verdict,
+                score=verdict.score,
+                reasons=verdict.reasons,
+                case_count=cluster.size,
+            )
+            if not verdict.learnable:
+                continue
+
             cases = self.dataset_builder.build_from_cluster(cluster)
             if not cases:
                 continue
+            regression_cases = self._regression_cases(clusters, cluster)
             baseline_results = self.replay_runner.run(cases)
-            candidate_results = self.replay_runner.run(cases, extra_rules=[proposal.rule_text])
-            evaluation = self.evaluator.evaluate(cases, baseline_results, candidate_results)
-            decisions.append(self.promoter.promote(proposal, evaluation))
+            regression_baseline = (
+                self.replay_runner.run(regression_cases) if regression_cases else []
+            )
+
+            for proposal in self._proposal_ladder(cluster):
+                candidate_results = self._replay_with_proposal(cases, proposal)
+                evaluation = self.evaluator.evaluate(cases, baseline_results, candidate_results)
+                regression = None
+                if regression_cases:
+                    regression_candidate = self._replay_with_proposal(regression_cases, proposal)
+                    regression = self.evaluator.evaluate(
+                        regression_cases, regression_baseline, regression_candidate
+                    )
+                decision = self.promoter.promote(proposal, evaluation, regression=regression)
+                decisions.append(decision)
+                if decision.accepted:
+                    break
         return decisions
+
+    def export_training_data(self, path: str | Path = Path("data") / "synora_sft.jsonl") -> ExportReport:
+        return self.exporter.export(path)
+
+    def run_weight_cycle(
+        self,
+        trainer: ModelTrainer,
+        *,
+        dataset_path: str | Path = Path("data") / "synora_sft.jsonl",
+        replay_limit: int = 200,
+    ) -> WeightCycleReport:
+        """Export validated experience, fine-tune, verify on replay, and swap
+        in the tuned model only if it wins. The current model stays in place
+        otherwise, so weight-level learning can only move forward."""
+        loop = WeightLoop(
+            self.db,
+            self.exporter,
+            self.dataset_builder,
+            self.evaluator,
+            self.policy,
+            self.router,
+        )
+        report, next_model = loop.run(
+            self.model,
+            trainer,
+            dataset_path=dataset_path,
+            replay_limit=replay_limit,
+        )
+        if next_model is not self.model:
+            self.model = next_model
+            self.replay_runner.model = next_model
+        return report
+
+    def model_card(self, *, model_name: str = "local model") -> str:
+        return ModelCardBuilder(self.db).build(model_name=model_name)
+
+    def write_model_card(self, path: str | Path, *, model_name: str = "local model") -> Path:
+        return ModelCardBuilder(self.db).write(path, model_name=model_name)
+
+    def _proposal_ladder(self, cluster: FailureCluster) -> list[PatchProposal]:
+        ladder = [self.patcher.propose(cluster)]
+        few_shot = self.few_shot_patcher.propose(cluster)
+        if few_shot is not None:
+            ladder.append(few_shot)
+        return ladder
+
+    def _replay_with_proposal(
+        self,
+        cases: list[ReplayCase],
+        proposal: PatchProposal,
+    ) -> list[dict[str, Any]]:
+        if proposal.patch_type == "few_shot":
+            example = {
+                "prompt": proposal.example_prompt or "",
+                "response": proposal.example_response or "",
+            }
+            return self.replay_runner.run(cases, extra_examples=[example])
+        return self.replay_runner.run(cases, extra_rules=[proposal.rule_text])
+
+    def _regression_cases(
+        self,
+        clusters: list[FailureCluster],
+        current: FailureCluster,
+    ) -> list[ReplayCase]:
+        cases: list[ReplayCase] = []
+        for cluster in clusters:
+            if cluster is current:
+                continue
+            cases.extend(self.dataset_builder.build_from_cluster(cluster))
+        return cases
 
     def dashboard(self) -> dict[str, Any]:
         return self.db.get_dashboard_snapshot()

@@ -253,12 +253,81 @@ class Database:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def insert_triage(
+        self,
+        *,
+        issue_type: str,
+        verdict: str,
+        score: float,
+        reasons: list[str],
+        case_count: int,
+    ) -> int:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO mistake_triage (issue_type, verdict, score, reasons_json, case_count)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (issue_type, verdict, score, self._dump_json(reasons), case_count),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def list_triage(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            """
+            SELECT id, issue_type, verdict, score, reasons_json, case_count, created_at
+            FROM mistake_triage
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        entries: list[dict[str, Any]] = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["reasons"] = self._load_json(item.pop("reasons_json"), [])
+            entries.append(item)
+        return entries
+
+    def list_corrections(self, *, route: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        query = """
+            SELECT
+                i.id AS interaction_id,
+                i.prompt,
+                i.route,
+                COALESCE(NULLIF(f.ideal_response, ''), f.correction) AS reference_response
+            FROM feedback AS f
+            JOIN interactions AS i ON i.id = f.interaction_id
+            WHERE COALESCE(NULLIF(f.ideal_response, ''), f.correction) IS NOT NULL
+        """
+        params: list[Any] = []
+        if route is not None:
+            query += " AND i.route = ?"
+            params.append(route)
+        query += " ORDER BY f.id DESC LIMIT ?"
+        params.append(limit)
+        cursor = self.connection.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def list_all_few_shot_examples(self) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            """
+            SELECT id, route, prompt, response
+            FROM few_shot_examples
+            WHERE active = 1
+            ORDER BY id ASC
+            """
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_dashboard_snapshot(self) -> dict[str, Any]:
         metrics = {
             "interactions": self._count("interactions"),
             "feedback_items": self._count("feedback"),
             "promoted_patches": self._count("patches", "status = 'promoted'"),
             "active_rules": self._count("policy_rules", "active = 1"),
+            "active_examples": self._count("few_shot_examples", "active = 1"),
+            "quarantined_clusters": self._count("mistake_triage", "verdict = 'quarantined'"),
         }
         issue_counts = self.connection.execute(
             """
@@ -274,6 +343,7 @@ class Database:
             "active_rules": self.list_policy_rules(active_only=True),
             "recent_patches": self.list_patch_history(limit=10),
             "recent_interactions": self.list_recent_interactions(limit=5),
+            "recent_triage": self.list_triage(limit=10),
         }
 
     def close(self) -> None:
