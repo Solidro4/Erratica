@@ -1,10 +1,11 @@
 [project]
 name = "erratica"
-version = "0.4.0"
-description = "Local AI runtime that learns from real usage by replaying failures, validating fixes, and promoting only measured improvements."
+version = "0.5.0"
+description = "A learning loop for local LLMs: replay failures, validate fixes on held-out cases, and promote only what measurably helps."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Kevin Maqueda", email = "maquedakevin1180@gmail.com" },
 ]
@@ -13,20 +14,22 @@ keywords = [
     "local-ai",
     "continual-learning",
     "self-improvement",
+    "evaluation",
     "fine-tuning",
     "feedback-loop",
     "llama-cpp",
+    "ollama",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = []
@@ -35,13 +38,20 @@ dependencies = []
 llama = ["llama-cpp-python>=0.2"]
 embeddings = ["sentence-transformers>=2.2"]
 
+[project.scripts]
+erratica = "erratica.cli.main:main"
+
 [project.urls]
 Homepage = "https://github.com/Solidro4/Erratica"
 Issues = "https://github.com/Solidro4/Erratica/issues"
+Changelog = "https://github.com/Solidro4/Erratica/blob/main/CHANGELOG.md"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["erratica*"]
+
+[tool.setuptools.package-data]
+erratica = ["data/*.json"]

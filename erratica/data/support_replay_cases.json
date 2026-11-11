@@ -1,0 +1,123 @@
+[
+  {
+    "prompt": "Customer says order #41327 was returned two weeks ago and the refund still has not arrived.",
+    "feedback": "too vague, no resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "refund",
+      "order"
+    ],
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete."
+  },
+  {
+    "prompt": "Customer says order #55210 arrived damaged and asks for a replacement.",
+    "feedback": "acknowledged the issue but gave no replacement plan",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "replacement",
+      "order"
+    ],
+    "preferred_format": "numbered_list",
+    "ideal_response": "I reviewed your request about a damaged item delivery. 1. Reference: order 55210 2. Resolution: we are sending a replacement shipment at no extra cost 3. Timeline: 1 business day 4. Next step: we will send a confirmation update as soon as the action is complete."
+  },
+  {
+    "prompt": "Customer says order #77110 has had no tracking updates for five days and asks what happens next.",
+    "feedback": "missing timeline and next step",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "shipment",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says they were charged twice for the same subscription renewal and wants the duplicate charge reversed.",
+    "feedback": "no clear billing resolution",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "charge",
+      "billing"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says they canceled last week but were still billed and wants a refund for the latest billing period.",
+    "feedback": "unclear refund policy and next step",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "refund",
+      "billing"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says order #63002 arrived with a broken screen and wants to know what we will do.",
+    "feedback": "apologised but offered nothing concrete",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "replacement",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer reports the shipment for order #90417 is delayed again and asks for an update.",
+    "feedback": "no action and no timeframe",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "shipment",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer was promised a refund on order #28844 ten days ago and has heard nothing since.",
+    "feedback": "did not say when the refund will arrive",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "refund",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer returned order #12003 a month ago and is still waiting for the refund.",
+    "split": "test",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "refund",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says the replacement for damaged order #47120 has not shipped yet.",
+    "split": "test",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "replacement",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer says order #30991 shows as delivered but never arrived and asks what we will do.",
+    "split": "test",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  },
+  {
+    "prompt": "Customer was billed twice for order #61204 and asks for the extra charge to be reversed.",
+    "split": "test",
+    "issue_type": "missing_resolution",
+    "required_terms": [
+      "charge",
+      "order"
+    ],
+    "preferred_format": "numbered_list"
+  }
+]

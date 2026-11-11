@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +21,36 @@ jobs:
       - name: Run tests
         run: python -m unittest -v
       - name: Run demo
-        run: python -m erratica.cli.demo
+        run: python -m erratica demo
       - name: Run benchmark
-        run: python -m erratica.cli.benchmark
+        run: python -m erratica benchmark
+
+  # Builds the wheel and uses it from outside the source tree, so a file that
+  # is missing from the package fails here instead of on a user's machine.
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Install the wheel
+        shell: bash
+        run: python -m pip install dist/*.whl
+      - name: Use the installed package from another directory
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          erratica --version
+          erratica demo
+          erratica benchmark
+          python -c "import erratica, pathlib; assert 'site-packages' in str(pathlib.Path(erratica.__file__)), erratica.__file__"

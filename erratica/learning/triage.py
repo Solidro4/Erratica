@@ -18,6 +18,9 @@ _LEARNABLE_THRESHOLD = 0.45
 # z = 1.0 gives an ~84% one-sided confidence lower bound.
 _WILSON_Z = 1.0
 
+# How much one piece of critic-written feedback counts next to a human one.
+_SELF_GENERATED_WEIGHT = 0.5
+
 
 @dataclass
 class TriageVerdict:
@@ -56,18 +59,21 @@ class MistakeTriage:
         if size == 0:
             return TriageVerdict(learnable=False, score=0.0, reasons=["empty cluster"])
 
-        reference_count = 0
-        negative = 0
-        positive = 0
+        reference_count = 0.0
+        negative = 0.0
+        positive = 0.0
         format_counts: dict[str, int] = {}
         for case in cluster.cases:
+            # Evidence a critic model produced counts for less than evidence
+            # from a person: it is a hypothesis about what went wrong.
+            weight = 1.0 if (case.get("source") or "human") == "human" else _SELF_GENERATED_WEIGHT
             if case.get("ideal_response") or case.get("correction"):
-                reference_count += 1
+                reference_count += weight
             rating = case.get("rating") or 0
             if rating < 0:
-                negative += 1
+                negative += weight
             elif rating > 0:
-                positive += 1
+                positive += weight
             preferred_format = case.get("preferred_format")
             if preferred_format:
                 format_counts[preferred_format] = format_counts.get(preferred_format, 0) + 1
@@ -103,8 +109,8 @@ class MistakeTriage:
         )
         return TriageVerdict(learnable=learnable, score=score, reasons=reasons)
 
-    def _wilson_lower_bound(self, successes: int, trials: int) -> float:
-        if trials == 0:
+    def _wilson_lower_bound(self, successes: float, trials: float) -> float:
+        if trials <= 0:
             return 0.0
         z = _WILSON_Z
         z_squared = z * z

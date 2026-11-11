@@ -1,3 +1,1 @@
-from erratica.storage.db import Database
-
-__all__ = ["Database"]
+"""SQLite storage and audit trail."""

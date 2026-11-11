@@ -1,336 +1,323 @@
 # Erratica
 
-> Your AI should not make the same mistake twice.
+> Your AI should not make the same mistake twice. And it should be able to prove it.
 
-Erratica is a local AI runtime that improves from real usage by replaying failures, validating fixes, and only promoting changes that actually work.
+Erratica wraps a local language model in a learning loop. When the model gets
+something wrong and someone says so, Erratica proposes a fix, replays past
+failures to see whether the fix works, and installs it only if it measurably
+helps on cases it was **not** written from, without breaking answers people
+already approved.
 
-Models that ship with Erratica do not stay frozen after deployment: they keep learning from their own mistakes, on your hardware, with every change validated and auditable.
+It has no required dependencies, stores everything in one SQLite file, and
+works with any model you can call from Python (llama.cpp, Ollama, or your
+own adapter).
+
+```text
+answer -> feedback -> triage -> propose a fix -> replay on held-out failures
+                                                        |
+                              regression guard on approved answers
+                                                        |
+                                              promote or reject
+                                                        |
+                              audit: switch each patch off, keep what still helps
+```
 
 ## Install
 
 ```bash
-pip install erratica            # core, zero dependencies
-pip install erratica[llama]     # + llama-cpp-python for local .gguf models
-pip install erratica[embeddings]  # + semantic similarity scoring
-```
-
-Or from source:
-
-```bash
 git clone https://github.com/Solidro4/Erratica
 cd Erratica
-pip install -e .
+pip install .
 ```
 
----
+Optional extras: `pip install ".[llama]"` for local `.gguf` models through
+llama-cpp-python, `pip install ".[embeddings]"` for sentence-transformers
+similarity. Ollama needs no extra: Erratica talks to it over HTTP.
 
-## See It In Action
-
-**Prompt:**  
-Customer says order #41327 was returned two weeks ago and the refund still has not arrived.
-
----
-
-**Before**  
-Thanks for reaching out. We are reviewing the issue and will follow up soon.
-
----
-
-**Feedback**  
-too vague, no resolution
-
----
-
-**Ideal response**  
-I reviewed your request about your refund request. 1. Reference: order 41327 2. Resolution: we are approving the refund back to the original payment method 3. Timeline: 3-5 business days 4. Next step: we will send a confirmation update as soon as the action is complete.
-
----
-
-**Applying patch...**
-
-Replaying 5 past failures...
-
-Score before: **0.03**  
-Score after: **0.89**
-
----
-
-**Patch:**  
-For support replies, restate the issue, provide a concrete resolution, and include a timeline.
-
-**Status:** **PROMOTED**
-
----
-
-**After**  
-I reviewed your request about your refund.
-
-1. Reference: order 41327  
-2. Resolution: we are approving the refund to your original payment method  
-3. Timeline: 3-5 business days  
-4. Next step: we will send a confirmation update once completed
-
----
-
-## What Is Erratica?
-
-Most AI systems:
-
-- forget past mistakes
-- repeat the same errors
-- improve only with retraining
-
-Erratica introduces a different approach:
-
-```text
-User Prompt
-   |
-   v
-Experience Recall (similar past corrections injected)
-   |
-   v
-Initial Response
-   |
-   v
-Feedback
-   |
-   v
-Mistake Triage (good vs bad mistakes, pure math)
-   |         \
-   v          v
-Learnable   Quarantined (audited, waits for more evidence)
-   |
-   v
-Behavior Update Ladder (prompt rule -> few-shot example)
-   |
-   v
-Replay on Past Failures + Regression Guard
-   |
-   v
-Score Comparison
-   |
-   v
-Promote or Reject
-   |
-   v
-Training Data Export (LoRA fine-tuning of the local model)
-```
-
-It does not retrain weights inside the loop.
-
-Instead, it learns in three escalating stages:
-
-1. **Instant**: every correction becomes recallable experience, injected when a similar prompt arrives.
-2. **Validated**: recurring failures become prompt rules or few-shot examples, promoted only when they win on replay without regressing past wins.
-3. **Weight-level**: validated experience exports as a chat-format JSONL dataset for LoRA/QLoRA fine-tuning of small local models on modest hardware.
-
----
-
-## Why It Stands Out
-
-- Remembers real production failures
-- Filters good mistakes from bad ones before learning anything
-- Recalls similar past corrections at answer time (case-based learning)
-- Proposes behavior patches instead of retraining
-- Replays past failures before applying changes
-- Promotes only validated improvements, and rejects patches that regress old wins
-- Exports validated experience as a fine-tuning dataset
-- Keeps a full audit trail of decisions, including quarantined mistakes
-
-The novelty is not "local AI".
-
-The novelty is the **validated improvement loop**.
-
-## Mistake Triage: Good Mistakes vs Bad Mistakes
-
-Not every mistake should be learned from. Erratica triages each failure cluster
-with pure math in a single O(n) pass, no model calls, no dependencies:
-
-- **Reference strength**: fraction of cases carrying a user-approved answer
-- **Failure confidence**: Wilson score lower bound on the proportion of
-  negative ratings, so small samples cannot fake certainty
-- **Consistency**: 1 minus the normalized Shannon entropy of requested
-  formats, so contradictory feedback scores low
-- **Recurrence**: saturating `n / (n + 2)` mass, so repeats matter but
-  duplicate floods cannot dominate
-
-The channels combine into a weighted learnability score. Self-contradicting
-evidence (conflicting formats, or ratings that disagree the behavior is even
-a failure) is a hard quarantine regardless of score. Quarantined clusters
-stay on record and become learnable once more evidence arrives.
-
-## The Learning Ladder
-
-For each learnable cluster, Erratica escalates through patch types until one
-wins on replay:
-
-1. **Prompt rule**: cheapest fix, a learned instruction in the system prompt
-2. **Few-shot example**: teach by validated example when a rule is not enough
-
-Every rung is validated the same way: it must improve the failing cases and
-must not regress cases from other clusters (the regression guard).
-
-## Publish Your Model With a Verifiable Model Card
+Then:
 
 ```bash
-python -m erratica.cli.modelcard --db data/erratica.db --name "my-support-model" --out MODELCARD.md
+erratica demo        # walk through the loop with a built-in simulator
+erratica benchmark   # measure the loop on a small dataset
 ```
 
-Every model improved with Erratica can be published with a card that documents,
-from the audit trail, exactly what it learned: promoted behavior updates with
-their measured score gains, rejected updates (proof the loop is selective),
-quarantined noise, and the size of its validated fine-tuning dataset. Anyone
-holding the database can reproduce every number on the card.
-
-## From Mistakes to Weights
-
-```bash
-python -m erratica.cli.export --db data/erratica.db --out data/erratica_sft.jsonl
-```
-
-Every user correction and every promoted example exports as a chat-format
-JSONL record (system / user / assistant). Fine-tune a small local model on it
-with unsloth, axolotl, or llama.cpp LoRA training, then load the tuned
-`.gguf` back into Erratica. Prompt-level learning keeps the model sharp between
-fine-tunes; each fine-tune bakes the accumulated experience into the weights.
-This is how a small local model keeps improving on low-end hardware.
-
-## The Closed Weight Loop
-
-`run_weight_cycle` automates the whole journey from mistakes to weights, with
-the same contract as every other patch: the fine-tuned model must beat the
-current model on replay, or it is rejected and nothing changes.
+## Sixty-second tour
 
 ```python
 from erratica import Erratica
+from erratica.engine.ollama_adapter import OllamaModel
+
+ai = Erratica(model=OllamaModel("phi4-mini:3.8b"))
+
+result = ai.generate("Customer says order #41327 was returned and the refund has not arrived.")
+
+# Someone marks the answer as bad. Only the label is required.
+ai.learn_from_feedback(
+    interaction_id=result.interaction_id,
+    issue_type="missing_resolution",          # groups failures of the same kind
+    required_terms=["refund", "order"],        # optional: what a good answer mentions
+    preferred_format="numbered_list",          # optional
+    ideal_response="1. Reference: order 41327 ...",  # optional: the answer that was wanted
+)
+
+# When an answer is good, say so. Approved answers are protected:
+# no later patch or fine-tune is allowed to break them.
+good = ai.generate("Customer asks how to change their delivery address.")
+ai.approve(good.interaction_id)
+
+# Later, in the background:
+for decision in ai.run_learning_cycle():
+    print(decision.patch_type, decision.accepted, decision.validation, decision.reason)
+```
+
+## How a fix earns its place
+
+**Triage.** Failures are grouped by route and issue type. Each group is
+scored with a Wilson lower bound on how consistently it was rated a failure,
+the share of cases with a reference answer, the entropy of the formats people
+asked for, and how often it recurred. Contradictory groups are quarantined.
+No model calls are involved.
+
+**Held-out validation.** A learnable group is split by prompt. Fixes are
+written from one side and judged on the other, so a fix cannot win by
+memorising the cases it came from. Groups with fewer than three distinct
+prompts cannot be split; a fix validated that way is recorded as `in_sample`
+and reported as weak evidence everywhere it appears. Pass
+`require_holdout=True` to refuse those entirely.
+
+**The ladder.** Cheapest fix first; the next rung is only tried if the
+previous one loses.
+
+1. **Template rule**: an instruction from the domain pack or from the
+   feedback itself (required terms, requested format).
+2. **Model-written rule**: with a `proposer` model, it reads the failures and
+   writes one general instruction.
+3. **Few-shot example**: a reference answer from the group. Replay never shows
+   an example to the case it came from.
+4. **Python tool**: with `enable_tools=True`, the proposer writes a small
+   function that computes what the model keeps getting wrong. If the first
+   draft does not help on the training cases, the proposer is shown what it
+   returned and gets to fix it.
+
+**The gate.** A fix is promoted only if it raises the held-out score by more
+than `min_delta`, does not lower the score on other failures of the same
+route, and does not lower the score on answers people approved. Everything
+else is recorded as rejected, with the reason.
+
+**Replay matches production.** Replay builds the prompt the same way live
+answering does, including recall of similar past corrections (never the
+case's own). A fix is measured on what it adds to the system as deployed.
+
+**Audit.** `ai.run_audit()` switches each live patch off, replays, and rolls
+back the ones whose removal costs nothing. The prompt does not grow forever,
+and a patch made redundant by a later one or by a fine-tune is removed.
+
+**Rollback.** `ai.rollback(patch_id)` undoes any rule, example, or tool. The
+policy version counts every promotion and rollback, and each interaction
+records the version that produced it.
+
+## Measured results
+
+The built-in simulator exists so tests and the demo are deterministic. Its
+numbers show the plumbing working and nothing else. These are from a real
+model, `phi4-mini` (3.8B) through Ollama on a laptop RTX 4050, using
+`erratica benchmark`:
+
+**Support replies** (`erratica benchmark --ollama phi4-mini:3.8b`). Eight
+training prompts were asked; all eight answers failed the dataset's criteria
+and received feedback. One template rule was promoted on 3 held-out cases
+(0.65 -> 0.74), and a deliberately bad control rule was rejected.
+
+| | before | after |
+|---|---|---|
+| 4 unseen test prompts (no feedback ever given on them) | 0.48 | 0.81 |
+| 8 recorded failures, learned patches off -> on | 0.60 | 0.84 |
+
+**Arithmetic** (`erratica benchmark --dataset arithmetic --ollama phi4-mini:3.8b
+--proposer qwen3.5:4b --no-think --tools`). The model was asked to total four
+to six segment revenues and got all eight training prompts wrong. Nothing was
+promoted, and the 4 unseen test prompts stayed at 0.00. The proposer (another
+4B model) wrote a rule, which did not help, and a tool, which was screened,
+sandboxed, and used verbatim by the answering model, but summed the wrong
+numbers because its parser split `90,381` at the comma. Three drafts did not
+fix it. In an earlier run a model-written rule did raise the held-out score
+(0.00 -> 0.33) and was still rejected, because it broke the one answer that
+had been approved.
+
+That is a negative result and it is the loop working as designed: a wrong fix
+was proposed and none was installed. It also says the tool rung needs a
+proposer that can write correct code, which a 4B model on this task was not.
+
+Read these for what they are: one small model, a dozen prompts per dataset,
+scored by keyword, format, and reference-similarity checks rather than by
+people. They show the loop doing its job on a real model. They are not a
+benchmark of how much any model improves in general. Run the command on your
+own model and data to get numbers that mean something for you.
+
+## Bring your own domain
+
+The loop is domain-agnostic. A domain pack tells it how to recognise a kind
+of task, which rule to try first for a known issue, and how to check an
+answer beyond comparing it with a reference.
+
+```python
+from erratica import Domain, Erratica
+
+def cites_sources(case, response):
+    return 1.0 if "[source]" in response else 0.0
+
+research = Domain(
+    name="research",
+    keywords=("paper", "study", "citation"),
+    rule_templates={"missing_citation": "Cite every claim with a [source] marker."},
+    issue_checks={"missing_citation": cites_sources},
+    min_delta=0.1,                # stricter promotion gate for this route
+)
+
+ai = Erratica(model=my_model, domains=[research])
+ai.generate("Summarise the study on sleep.")           # routed by keywords
+ai.generate("Summarise this.", route="research")       # or say it yourself
+```
+
+Rules, examples, and tools are scoped to the route they were learned on. A
+support rule never appears in a research prompt.
+
+Support and finance packs are built in as examples.
+
+## Scoring answers
+
+Each signal available for a case contributes a score from 0 to 1: required
+terms, requested format, similarity to a reference answer, the domain pack's
+checks, and any critics you pass. The case score is their mean. A case with
+no signal is excluded rather than counted as zero.
+
+Similarity is pluggable:
+
+```python
+from erratica import Erratica, OllamaEmbeddingScorer, EmbeddingSimilarityScorer
+
+ai = Erratica(similarity_scorer=OllamaEmbeddingScorer("nomic-embed-text"))   # via Ollama
+ai = Erratica(similarity_scorer=EmbeddingSimilarityScorer())                 # sentence-transformers
+```
+
+The default compares wording, not meaning, so it cannot tell that two
+differently phrased answers are equivalent. Use an embedding scorer, or a
+critic, when paraphrases matter.
+
+## Self-review
+
+A critic model can grade answers nobody rated and try to write better ones:
+
+```python
+from erratica import ModelCritic
+
+critic = ModelCritic(OllamaModel("a-larger-model"))
+report = ai.self_review(critic)        # grades unrated answers, records what it finds
+ai.run_learning_cycle()                # critic findings go through the same gate
+```
+
+What a critic writes is a hypothesis, and Erratica treats it as one. Critic
+feedback is stored with `source='critic'`. By default it is not recalled at
+answer time, not exported for fine-tuning, and counts for half in triage. It
+can drive rule and example proposals, and those still have to pass replay,
+including the guard on answers real people approved. Each patch records what
+fraction of its evidence came from people.
+
+A critic only helps if it is meaningfully stronger than the model it grades.
+
+## Learned tools
+
+Tools are off unless you pass `enable_tools=True`, because they execute
+generated code. A tool is one function, `run(prompt: str) -> str`, whose
+output is handed to the model as a verified note.
+
+Two layers contain it. Static screening allows imports only from a short list
+of pure-computation modules and rejects dunder names, private attributes,
+file access, and dynamic execution. Then the tool runs in a separate
+interpreter with restricted builtins, a timeout, and an output cap.
+
+This is defence in depth for code you are going to read, not a security
+boundary against a determined attacker. Every tool is stored in the audit
+trail with its source. Read it before you rely on it.
+
+## From mistakes to weights
+
+```python
+from erratica import CommandTrainer
 from erratica.engine.llama_cpp_adapter import LlamaCppModel
 
+trainer = CommandTrainer(
+    ["python", "train_lora.py", "--data", "{dataset}", "--out", "{output}"],
+    output_path="models/tuned.gguf",
+    loader=lambda path: LlamaCppModel(model_path=str(path)),
+)
+report = ai.run_weight_cycle(trainer)
 
-class MyLoraTrainer:
-    def train(self, dataset_path):
-        # Run your LoRA/QLoRA trainer (unsloth, axolotl, llama.cpp) on the
-        # exported dataset, then return an adapter for the tuned weights.
-        run_lora_training(dataset_path, output="models/tuned.gguf")
-        return LlamaCppModel(model_path="models/tuned.gguf")
-
-
-ai = Erratica(model=LlamaCppModel(model_path="models/base.gguf"))
-report = ai.run_weight_cycle(MyLoraTrainer())
-
-print(report.accepted)      # True only if the tuned model won on replay
-print(report.score_before)  # current model on past failures
-print(report.score_after)   # tuned model on past failures
+print(report.accepted, report.reason)
+print(report.score_before, report.score_after)              # on held-out failures
+print(report.train_score_before, report.train_score_after)  # on its own training prompts
 ```
 
-Every cycle is recorded in the audit trail and shows up on the model card,
-promoted or rejected. A bad fine-tune can never silently replace a good model.
+A fine-tune is the easiest change to fool yourself about: train on the
+corrections, test on the same prompts, and a model that only memorised them
+looks perfect. So some failures are kept out of the training file and the
+candidate is judged on those. It must also not get worse on approved answers.
+With too few distinct failures to hold any out, the cycle refuses to run.
 
----
+Erratica does not ship a GPU training stack. `CommandTrainer` runs whichever
+one you use (an unsloth or PEFT script, llama.cpp tooling, a remote job). You
+supply that script.
 
-## Quick Start
+`ai.consolidate(critic=..., trainer=...)` runs self-review, a learning cycle,
+an audit, and a weight cycle in one pass. Schedule `erratica consolidate` as
+a nightly task to have the model tidy up what it learned while idle.
 
-```bash
-python -m unittest -v
-python -m erratica.cli.demo
-python -m erratica.cli.dashboard
-python -m erratica.cli.benchmark
-python -m erratica.cli.export
-```
-
-## Current Scope
-
-- Domain: support ticket replies
-- Storage: SQLite
-- Patch types: learned prompt rules and validated few-shot examples
-- Mistake filter: math-based triage (Wilson bound, entropy, recurrence mass)
-- Inference boost: experience recall of similar past corrections
-- Evaluator: domain-aware checks plus pluggable ideal-response similarity scoring
-- Replay set: `datasets/support_replay_cases.json` with feedback signals and ideal responses
-- Export: chat-format JSONL for LoRA/QLoRA fine-tuning
-
-## Evaluation System
-
-Erratica uses a pluggable similarity layer to evaluate improvements.
-
-Current options:
-
-- Hybrid string similarity: default, fast, local
-- Semantic similarity: optional, via embeddings
-
-The evaluator can be swapped without changing the replay loop.
-
-This allows Erratica to evolve from simple scoring to advanced semantic evaluation while keeping the same learning architecture.
-
-## Benchmark Mode
-
-Run:
-
-```bash
-python -m erratica.cli.benchmark
-```
-
-Benchmark mode replays multiple support cases, prints per-case improvements, reports the average score shift, and shows both promoted and rejected behavior updates so Erratica can prove it does not blindly accept every change.
+## Command line
 
 ```text
-Case improvements:
-- refund delay: 0.03 -> 0.87
-- damaged item: 0.03 -> 0.73
-- billing issue: 0.03 -> 1.00
-
-Behavior update outcomes:
-- prompt_rule | REJECTED | 0.03 -> 0.02
-- prompt_rule | PROMOTED | 0.03 -> 0.89
+erratica demo         walk through the loop
+erratica benchmark    measure the loop (--dataset support | arithmetic | file.json)
+erratica cycle        run one learning cycle on a database
+erratica audit        measure each live patch, roll back dead weight
+erratica consolidate  cycle + audit in one pass
+erratica rollback N   undo patch N
+erratica dashboard    what a database has learned
+erratica modelcard    a model card generated from the audit trail
+erratica export       corrections as a chat-format JSONL dataset
 ```
 
-## Using A Real Local Model
+Model options for the commands that replay: `--ollama NAME`, `--gguf PATH`,
+`--proposer NAME` (an Ollama model that writes rules and tools), `--tools`,
+`--no-think` (for reasoning models).
 
-The repo still runs out of the box with the deterministic demo model so the learning loop is easy to test. When you want real inference, swap in `erratica.engine.llama_cpp_adapter.LlamaCppModel`:
+## Model cards
 
-```python
-from erratica import Erratica
-from erratica.engine.llama_cpp_adapter import LlamaCppModel
+`erratica modelcard --db data/erratica.db --name my-model` writes a card from
+the audit trail: what was promoted and how it was validated (held-out or
+in-sample), what was rejected and why, what was rolled back, how much of the
+feedback came from people, and every weight cycle with its held-out and
+training scores side by side. Anyone holding the database can check it.
 
-model = LlamaCppModel(model_path="models/mistral-7b-instruct.Q4_K_M.gguf")
-ai = Erratica(model=model)
+## What this is not
+
+- It does not make a small model generally smarter. It fixes recurring,
+  describable failures in the tasks the model is actually used for.
+- The default scoring is heuristic. A patch that wins on keyword and format
+  checks is not guaranteed to be better by human judgement. Add checks,
+  an embedding scorer, or a critic that fit your task.
+- Held-out sets are small when feedback is sparse. Three held-out cases is
+  evidence, not proof. The audit exists partly to catch patches that looked
+  good early and stop helping.
+- Keyword routing is a convenience. Pass `route=` when you know the task.
+- A single SQLite connection is used; share one `Erratica` per process.
+
+## Development
+
+```bash
+python -m unittest        # 73 tests, no dependencies, about 20 seconds
+python -m erratica demo
 ```
-
-```python
-from erratica import EmbeddingSimilarityScorer, Erratica
-
-similarity = EmbeddingSimilarityScorer()
-ai = Erratica(similarity_scorer=similarity)
-```
-
-That lets you move from string matching toward semantic correctness once you have a local embedding model available.
-
-## Toward More General Intelligence (Honestly)
-
-Erratica will not turn a 1B-parameter model into AGI, and it does not claim to.
-What it does is close the gap that matters in practice: a frozen small model
-falls further behind every day, while a Erratica-run model compounds validated
-experience in the domains where it is actually used.
-
-The roadmap toward broader capability is incremental and measurable:
-
-1. **Domain packs**: evaluators and routing beyond support tickets, so the
-   same learning loop covers new task families.
-2. **Closed weight loop** (shipped in 0.3.0): export -> LoRA fine-tune ->
-   reload -> replay-verify, so experience regularly compounds into the weights.
-3. **Cross-domain transfer**: promoted rules and examples reused across
-   related routes when replay proves they generalize.
-4. **Semantic recall**: embedding-based experience retrieval so corrections
-   transfer across paraphrases, not just similar wording.
-
-Every step keeps the same contract: no change ships unless it wins on replay.
-
-## Next Steps
-
-1. Replace the demo model with a local `.gguf` model through `llama-cpp-python`.
-2. Grow the replay set from 5 cases to 50 real support failures.
-3. Add promotion gates for routing changes, not just prompt rules and examples.
-4. Ship a reference `ModelTrainer` implementation for llama.cpp LoRA training.
-5. Swap experience recall to embedding similarity for better matching across paraphrases.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

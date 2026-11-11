@@ -3,137 +3,132 @@ from __future__ import annotations
 import argparse
 import tempfile
 from pathlib import Path
+from typing import Optional
 
-from erratica import Erratica
-from erratica.cli.demo import _DEFAULT_DATASET, load_cases
-from erratica.learning.patcher import PatchProposal
+from erratica.cli.common import (
+    SIMULATOR_NOTE,
+    add_model_arguments,
+    describe_decision,
+    load_cases,
+    open_engine,
+    record_cases,
+    to_replay_case,
+    uses_simulator,
+)
+from erratica.learning.clustering import is_failing
+
+_BAD_RULE = "Respond in a single short sentence, avoid detail, and avoid timelines."
 
 
-def render_benchmark(dataset_path: str | Path) -> str:
-    cases = load_cases(dataset_path)
+def render_benchmark(
+    dataset_path: Optional[str | Path] = None,
+    args: Optional[argparse.Namespace] = None,
+) -> str:
+    """Measure what the learning loop changes for a model on a dataset.
+
+    The dataset's training prompts are asked one by one. Good answers are
+    approved and bad ones get the dataset's feedback, as a user would give
+    it. Then one learning cycle runs.
+
+    Two things are reported. The headline number is the score on the
+    dataset's test prompts, which the system never received feedback on,
+    before and after learning. The second table replays the recorded
+    failures with the learned patches switched off and on.
+
+    Works with any model: pass ``--ollama`` or ``--gguf`` to measure a real
+    one.
+    """
+    args = args or argparse.Namespace()
+    train = load_cases(dataset_path, split="train")
+    test = load_cases(dataset_path, split="test")
     with tempfile.TemporaryDirectory() as tempdir:
-        ai = Erratica(db_path=Path(tempdir) / "benchmark.db")
+        ai = open_engine(args, db_path=Path(tempdir) / "benchmark.db")
         try:
-            for case in cases:
-                result = ai.generate(case["prompt"])
-                ai.learn_from_feedback(
-                    interaction_id=result.interaction_id,
-                    rating=-1,
-                    issue_type=case["issue_type"],
-                    required_terms=case.get("required_terms"),
-                    preferred_format=case.get("preferred_format"),
-                    ideal_response=case.get("ideal_response"),
-                    notes=case["feedback"],
-                )
+            lines = ["=== Erratica Benchmark ==="]
+            if uses_simulator(args):
+                lines.append(SIMULATOR_NOTE)
 
-            failures = ai.memory.failed_interactions(limit=len(cases))
-            clusters = ai.clusterer.cluster(failures)
-            if not clusters:
-                return "No replay cases available."
+            test_cases = [to_replay_case(ai, case, -(index + 1)) for index, case in enumerate(test)]
+            test_before = ai.replay_runner.run(test_cases)
 
-            cluster = clusters[0]
-            replay_cases = ai.dataset_builder.build_from_cluster(cluster)
-            baseline_results = ai.replay_runner.run(replay_cases)
+            recorded = record_cases(ai, train)
+            failures = sum(1 for item in recorded if item.failed)
+            decisions = ai.run_learning_cycle()
+            route = recorded[0].result.route
+            control = ai.propose_rule(_BAD_RULE, route=route)
 
-            accepted_proposal = ai.patcher.propose(cluster)
-            accepted_results = ai.replay_runner.run(replay_cases, extra_rules=[accepted_proposal.rule_text])
-            accepted_evaluation = ai.evaluator.evaluate(replay_cases, baseline_results, accepted_results)
-
-            rejected_proposal = PatchProposal(
-                patch_type="prompt_rule",
-                target="system_prompt",
-                rule_text="Respond in a single short sentence, avoid detail, and avoid timelines.",
-                rationale="Control behavior update used to verify that Erratica rejects degraded policies.",
-                source_issue_type="control",
-            )
-            rejected_results = ai.replay_runner.run(replay_cases, extra_rules=[rejected_proposal.rule_text])
-            rejected_evaluation = ai.evaluator.evaluate(replay_cases, baseline_results, rejected_results)
-
-            rejected_decision = ai.promoter.promote(rejected_proposal, rejected_evaluation)
-            accepted_decision = ai.promoter.promote(accepted_proposal, accepted_evaluation)
-
-            lines = [
-                "=== Erratica Benchmark ===",
+            lines += [
                 "",
-                "Learning flow:",
-                "User Prompt",
-                "  |",
-                "  v",
-                "Initial Response",
-                "  |",
-                "  v",
-                "Feedback",
-                "  |",
-                "  v",
-                "Behavior Update Proposal",
-                "  |",
-                "  v",
-                "Replay on Past Failures",
-                "  |",
-                "  v",
-                "Score Comparison",
-                "  |",
-                "  v",
-                "Promote or Reject",
+                f"Training prompts: {len(train)} asked, {failures} failed and got feedback, "
+                f"{len(train) - failures} were good and approved",
                 "",
-                "Cluster summary:",
-                f"- {cluster.issue_type}: {cluster.size} failures grouped into one behavior update",
-                "",
-                "Case improvements:",
+                "Learning cycle decisions:",
             ]
+            for decision in decisions:
+                lines.append("- " + describe_decision(decision))
+            if not decisions:
+                lines.append("- none (nothing learnable, or nothing worth proposing)")
+            lines += ["", "Control (a deliberately bad rule):", "- " + describe_decision(control)]
 
-            for case, delta in zip(replay_cases, accepted_evaluation.case_deltas):
-                lines.append(
-                    f"- {short_case_label(case.prompt)}: {delta['before']:.2f} -> {delta['after']:.2f}"
-                )
+            if test_cases:
+                test_after = ai.replay_runner.run(test_cases)
+                unseen = ai.evaluator.evaluate(test_cases, test_before, test_after)
+                lines += ["", "Unseen test prompts (no feedback was ever given on these):"]
+                lines += _case_lines(unseen, {case.interaction_id: case.prompt for case in test_cases})
+                lines.append(_summary_line(unseen))
 
-            lines.extend(
-                [
-                    "",
-                    "Average score:",
-                    f"- baseline: {accepted_decision.score_before:.2f}",
-                    f"- after accepted behavior update: {accepted_decision.score_after:.2f}",
-                    f"- absolute gain: +{accepted_decision.delta:.2f}",
-                    f"- relative improvement: {format_relative_gain(accepted_decision.score_before, accepted_decision.score_after)}",
-                    "",
-                    "Behavior update outcomes:",
-                    f"- {rejected_proposal.patch_type} | REJECTED | {rejected_decision.score_before:.2f} -> {rejected_decision.score_after:.2f}",
-                    f"  rule: {rejected_proposal.rule_text}",
-                    f"- {accepted_proposal.patch_type} | PROMOTED | {accepted_decision.score_before:.2f} -> {accepted_decision.score_after:.2f}",
-                    f"  rule: {accepted_proposal.rule_text}",
-                ]
+            promoted = {decision.patch_id for decision in decisions if decision.accepted}
+            replay_cases = ai.dataset_builder.build(
+                [row for row in ai.memory.failed_interactions() if is_failing(row)]
             )
+            replay_cases.sort(key=lambda case: case.interaction_id)
+            if replay_cases:
+                without = ai.replay_runner.run(replay_cases, exclude_patch_ids=promoted)
+                with_patches = ai.replay_runner.run(replay_cases)
+                seen = ai.evaluator.evaluate(replay_cases, without, with_patches)
+                lines += ["", "Recorded failures (learned patches off -> on):"]
+                lines += _case_lines(seen, {case.interaction_id: case.prompt for case in replay_cases})
+                lines.append(_summary_line(seen))
+                lines.append(
+                    "(A case that is already high with patches off was fixed by experience recall.)"
+                )
             return "\n".join(lines)
         finally:
             ai.close()
 
 
-def short_case_label(prompt: str) -> str:
-    lowered = prompt.lower()
-    if "charged twice" in lowered or "duplicate charge" in lowered:
-        return "duplicate charge"
-    if "billed" in lowered or "subscription" in lowered:
-        return "billing issue"
-    if "refund" in lowered:
-        return "refund delay"
-    if "damaged" in lowered or "replacement" in lowered:
-        return "damaged item"
-    if "tracking" in lowered or "shipment" in lowered:
-        return "shipment delay"
-    return "support case"
+def _case_lines(summary, prompts: dict) -> list[str]:
+    return [
+        f"- {delta['before']:.2f} -> {delta['after']:.2f}  {_shorten(prompts[delta['interaction_id']])}"
+        for delta in summary.case_deltas
+    ]
 
 
-def format_relative_gain(before: float, after: float) -> str:
-    denominator = max(before, 0.01)
-    gain = ((after - before) / denominator) * 100.0
-    return f"+{gain:.0f}%"
+def _summary_line(summary) -> str:
+    return (
+        f"Average: {summary.score_before:.2f} -> {summary.score_after:.2f} ({summary.delta:+.2f}) "
+        f"over {summary.scored} cases; {summary.improved} improved, {summary.worsened} worse"
+    )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Erratica benchmark mode.")
-    parser.add_argument("--dataset", default=str(_DEFAULT_DATASET), help="Path to a replay dataset JSON file.")
-    args = parser.parse_args()
-    print(render_benchmark(args.dataset))
+def _shorten(text: str, limit: int = 70) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="erratica benchmark",
+        description="Measure what the learning loop changes on a replay dataset.",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="support",
+        help="'support', 'arithmetic', or the path to a JSON dataset (default: support).",
+    )
+    add_model_arguments(parser)
+    args = parser.parse_args(argv)
+    print(render_benchmark(args.dataset, args))
 
 
 if __name__ == "__main__":

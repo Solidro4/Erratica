@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable, Optional
 
 from erratica.learning.similarity import SimilarityScorer
 from erratica.storage.db import Database
+from erratica.textutil import normalize_prompt
 
 
 class MemoryStore:
@@ -29,7 +30,7 @@ class MemoryStore:
     def recent_interactions(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.db.list_recent_interactions(limit=limit)
 
-    def failed_interactions(self, limit: int = 100) -> list[dict[str, Any]]:
+    def failed_interactions(self, limit: int = 500) -> list[dict[str, Any]]:
         return self.db.list_failed_interactions(limit=limit)
 
     def similar_corrections(
@@ -39,22 +40,30 @@ class MemoryStore:
         route: str,
         scorer: SimilarityScorer,
         limit: int = 2,
-        min_score: float = 0.35,
+        min_score: float = 0.5,
+        exclude_prompts: Iterable[str] = (),
+        sources: Optional[Iterable[str]] = ("human",),
     ) -> list[dict[str, str]]:
-        """Recall past user-approved answers for prompts similar to this one.
+        """Recall past approved answers for prompts similar to this one.
 
-        This gives the model case-based experience at answer time: every
-        correction it has ever received is a candidate reference example,
-        without waiting for a learning cycle or retraining.
+        This gives the model case-based experience at answer time: a
+        correction is a candidate reference example the moment it is
+        recorded, without waiting for a learning cycle.
+
+        ``exclude_prompts`` removes specific past prompts from the pool.
+        Replay uses it so a case is never scored with its own answer in
+        front of the model.
         """
-        corrections = self.db.list_corrections(route=route)
+        excluded = {normalize_prompt(item) for item in exclude_prompts}
+        corrections = self.db.list_corrections(route=route, sources=sources)
         scored: list[tuple[float, dict[str, str]]] = []
         seen_prompts: set[str] = set()
         for correction in corrections:
             past_prompt = correction["prompt"]
-            if past_prompt in seen_prompts:
+            key = normalize_prompt(past_prompt)
+            if key in seen_prompts or key in excluded:
                 continue
-            seen_prompts.add(past_prompt)
+            seen_prompts.add(key)
             score = scorer.score(past_prompt, prompt)
             if score < min_score:
                 continue

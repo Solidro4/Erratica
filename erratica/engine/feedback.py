@@ -1,29 +1,27 @@
 from __future__ import annotations
 
-import re
+from typing import Optional
 
-from erratica.storage.db import Database
+from erratica.storage.db import APPROVED, Database
 
-_STOPWORDS = {
-    "the",
-    "and",
-    "for",
-    "that",
-    "with",
-    "this",
-    "from",
-    "have",
-    "into",
-    "your",
-    "about",
-    "missed",
-    "client",
-    "clients",
-    "please",
-}
+UNSPECIFIED = "unspecified"
+
+
+def normalize_issue_type(issue_type: Optional[str], rating: int) -> str:
+    if issue_type and issue_type.strip():
+        return issue_type.strip().lower().replace(" ", "_").replace("-", "_")
+    return APPROVED if rating > 0 else UNSPECIFIED
 
 
 class FeedbackIngestor:
+    """Stores feedback exactly as given.
+
+    Nothing is inferred from free-text notes. Required terms, the preferred
+    format, and the reference answer are only what the caller passed in, so
+    a comment like "too vague" can never turn into a demand that the answer
+    contain the word "vague".
+    """
+
     def __init__(self, db: Database) -> None:
         self.db = db
 
@@ -32,36 +30,24 @@ class FeedbackIngestor:
         interaction_id: int,
         *,
         rating: int = -1,
-        issue_type: str,
-        required_terms: list[str] | None = None,
-        preferred_format: str | None = None,
-        ideal_response: str | None = None,
-        correction: str | None = None,
-        notes: str | None = None,
+        issue_type: Optional[str] = None,
+        required_terms: Optional[list[str]] = None,
+        preferred_format: Optional[str] = None,
+        ideal_response: Optional[str] = None,
+        correction: Optional[str] = None,
+        notes: Optional[str] = None,
+        source: str = "human",
     ) -> int:
-        normalized_issue = issue_type.strip().lower().replace(" ", "_")
-        derived_terms = required_terms or self._extract_required_terms(correction or notes or "")
+        if self.db.get_interaction(interaction_id) is None:
+            raise ValueError(f"no interaction with id {interaction_id}")
         return self.db.insert_feedback(
             interaction_id=interaction_id,
             rating=rating,
-            issue_type=normalized_issue,
-            required_terms=derived_terms,
+            issue_type=normalize_issue_type(issue_type, rating),
+            required_terms=[term for term in (required_terms or []) if term and term.strip()],
             preferred_format=preferred_format,
             ideal_response=ideal_response,
             correction=correction,
             notes=notes,
+            source=source,
         )
-
-    def _extract_required_terms(self, text: str) -> list[str]:
-        tokens = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", text)
-        seen: set[str] = set()
-        extracted: list[str] = []
-        for token in tokens:
-            lowered = token.lower()
-            if lowered in _STOPWORDS or lowered in seen:
-                continue
-            seen.add(lowered)
-            extracted.append(token)
-            if len(extracted) == 5:
-                break
-        return extracted

@@ -1,3 +1,1 @@
-from erratica.engine.runner import GenerationResult, Erratica
-
-__all__ = ["GenerationResult", "Erratica"]
+"""Runtime: answering, memory, feedback, and model adapters."""

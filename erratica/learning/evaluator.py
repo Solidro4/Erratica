@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional, Sequence
 
+from erratica.domains import DomainRegistry, has_list
 from erratica.learning.replay import ReplayCase
 from erratica.learning.similarity import HybridStringSimilarityScorer, SimilarityScorer
 
@@ -13,15 +14,58 @@ class EvaluationSummary:
     score_before: float
     score_after: float
     case_deltas: list[dict[str, Any]]
+    # Cases with no checkable signal are left out of the averages.
+    unscorable: int = 0
 
     @property
     def delta(self) -> float:
         return self.score_after - self.score_before
 
+    @property
+    def scored(self) -> int:
+        return len(self.case_deltas)
+
+    @property
+    def worst_case_delta(self) -> float:
+        if not self.case_deltas:
+            return 0.0
+        return min(item["delta"] for item in self.case_deltas)
+
+    @property
+    def improved(self) -> int:
+        return sum(1 for item in self.case_deltas if item["delta"] > 1e-9)
+
+    @property
+    def worsened(self) -> int:
+        return sum(1 for item in self.case_deltas if item["delta"] < -1e-9)
+
 
 class PatchEvaluator:
-    def __init__(self, *, similarity_scorer: SimilarityScorer | None = None) -> None:
+    """Scores an answer against everything known about what was wanted.
+
+    Each available signal contributes one score in [0, 1]:
+
+    - required terms the user listed
+    - the format the user asked for
+    - similarity to a reference answer, when one exists
+    - the domain pack's checks for this route and issue type
+    - any critics passed in (for example a larger local model as judge)
+
+    The case score is the mean of the signals that apply. A case with no
+    signal at all cannot be scored and is excluded rather than counted as
+    zero, so missing evidence never looks like a failed patch or a win.
+    """
+
+    def __init__(
+        self,
+        *,
+        similarity_scorer: Optional[SimilarityScorer] = None,
+        registry: Optional[DomainRegistry] = None,
+        critics: Optional[Sequence[Any]] = None,
+    ) -> None:
         self.similarity_scorer = similarity_scorer or HybridStringSimilarityScorer()
+        self.registry = registry or DomainRegistry()
+        self.critics = list(critics or [])
 
     def evaluate(
         self,
@@ -32,10 +76,14 @@ class PatchEvaluator:
         before_scores: list[float] = []
         after_scores: list[float] = []
         case_deltas: list[dict[str, Any]] = []
+        unscorable = 0
 
         for case, before, after in zip(cases, baseline_results, candidate_results):
-            before_score = self._score_case(case, before["response"])
-            after_score = self._score_case(case, after["response"])
+            before_score = self.score_case(case, before["response"])
+            after_score = self.score_case(case, after["response"])
+            if before_score is None or after_score is None:
+                unscorable += 1
+                continue
             before_scores.append(before_score)
             after_scores.append(after_score)
             case_deltas.append(
@@ -51,9 +99,10 @@ class PatchEvaluator:
             score_before=self._average(before_scores),
             score_after=self._average(after_scores),
             case_deltas=case_deltas,
+            unscorable=unscorable,
         )
 
-    def _score_case(self, case: ReplayCase, response: str) -> float:
+    def score_case(self, case: ReplayCase, response: str) -> Optional[float]:
         checks: list[float] = []
         response_lower = response.lower()
 
@@ -62,112 +111,52 @@ class PatchEvaluator:
             checks.append(hits / len(case.required_terms))
 
         if case.preferred_format:
-            checks.append(1.0 if self._matches_format(case.preferred_format, response) else 0.0)
+            matched = matches_format(case.preferred_format, response)
+            if matched is not None:
+                checks.append(1.0 if matched else 0.0)
 
-        if case.ideal_response:
-            checks.append(self.similarity_scorer.score(case.ideal_response, response))
+        reference = case.reference
+        if reference:
+            checks.append(self.similarity_scorer.score(reference, response))
 
-        issue_score = self._score_issue(case, response)
-        if issue_score is not None:
-            checks.append(issue_score)
+        for check in self.registry.checks_for(case.route, case.issue_type):
+            value = check(case, response)
+            if value is not None:
+                checks.append(float(value))
 
-        support_score = self._score_support_case(case, response)
-        if support_score is not None:
-            checks.append(support_score)
-
-        return self._average(checks) if checks else 0.0
-
-    def _score_issue(self, case: ReplayCase, response: str) -> float | None:
-        issue_type = case.issue_type
-        lowered = response.lower()
-        if issue_type == "missing_segmentation":
-            return 1.0 if self._looks_segmented(response) else 0.0
-        if issue_type == "missing_next_steps":
-            return 1.0 if "1." in response or "next step" in lowered else 0.0
-        if issue_type == "missing_resolution":
-            return 1.0 if self._has_resolution(lowered) and self._has_timeframe(lowered) else 0.0
-        if issue_type == "missing_policy":
-            return 1.0 if "policy" in lowered or self._has_timeframe(lowered) else 0.0
-        if issue_type == "hallucinated_values":
-            return 1.0 if self._numbers_grounded(case.prompt, response) else 0.0
-        if issue_type == "missing_structure":
-            return 1.0 if self._matches_format("bullet_list", response) or self._matches_format("numbered_list", response) else 0.0
-        return None
-
-    def _score_support_case(self, case: ReplayCase, response: str) -> float | None:
-        if case.route != "support":
-            return None
-
-        response_lower = response.lower()
-        checks: list[float] = []
-        entities = self._expected_support_entities(case.prompt, case.required_terms)
-        if entities:
-            hits = sum(entity in response_lower for entity in entities)
-            checks.append(hits / len(entities))
-        checks.append(1.0 if self._has_resolution(response_lower) else 0.0)
-        checks.append(1.0 if self._has_timeframe(response_lower) else 0.0)
-        return self._average(checks)
-
-    def _looks_segmented(self, response: str) -> bool:
-        has_list = self._matches_format("bullet_list", response) or self._matches_format("numbered_list", response)
-        has_multiple_entries = len(re.findall(r"(?m)^\s*(?:\d+\.\s+|- )?[A-Za-z][A-Za-z\s\-]+:", response)) >= 2
-        return has_list and has_multiple_entries
-
-    def _matches_format(self, preferred_format: str, response: str) -> bool:
-        if preferred_format == "bullet_list":
-            return bool(re.search(r"(?m)^\s*- ", response)) or "1." in response
-        if preferred_format == "numbered_list":
-            return bool(re.search(r"(?m)^\s*\d+\.\s+", response))
-        if preferred_format == "sections":
-            return response.count(":") >= 2
-        if preferred_format == "paragraph":
-            return "\n" not in response.strip()
-        return False
-
-    def _numbers_grounded(self, prompt: str, response: str) -> bool:
-        prompt_numbers = set(re.findall(r"\$?[0-9]+(?:\.[0-9]+)?[MK]?", prompt))
-        response_numbers = set(re.findall(r"\$?[0-9]+(?:\.[0-9]+)?[MK]?", response))
-        return response_numbers.issubset(prompt_numbers)
-
-    def _expected_support_entities(self, prompt: str, required_terms: list[str]) -> list[str]:
-        expected: list[str] = []
-        lowered = prompt.lower()
-        if "refund" in lowered:
-            expected.append("refund")
-        if "order" in lowered:
-            expected.append("order")
-        if "charge" in lowered:
-            expected.append("charge")
-        if "billing" in lowered:
-            expected.append("billing")
-        if "shipment" in lowered or "tracking" in lowered:
-            expected.append("shipment")
-        if "replacement" in lowered or "damaged" in lowered:
-            expected.append("replacement")
-        for term in required_terms:
-            normalized = term.lower()
-            if normalized not in expected:
-                expected.append(normalized)
-        return expected[:4]
-
-    def _has_resolution(self, response_lower: str) -> bool:
-        return any(
-            token in response_lower
-            for token in (
-                "resolution:",
-                "refund",
-                "reversing",
-                "replacement",
-                "escalating",
-                "stopping renewal",
-                "applying a concrete resolution",
+        for critic in self.critics:
+            value = critic.score(
+                prompt=case.prompt,
+                response=response,
+                reference=reference,
+                route=case.route,
             )
-        )
+            if value is not None:
+                checks.append(max(0.0, min(1.0, float(value))))
 
-    def _has_timeframe(self, response_lower: str) -> bool:
-        return bool(re.search(r"\b(?:\d+\s*-\s*\d+|\d+)\s+(?:business days|hours|day)\b", response_lower))
+        if not checks:
+            return None
+        return self._average(checks)
 
     def _average(self, scores: list[float]) -> float:
         if not scores:
             return 0.0
         return sum(scores) / len(scores)
+
+
+def matches_format(preferred_format: str, response: str) -> Optional[bool]:
+    """True/False for a known format name, None for one we cannot check."""
+    if preferred_format == "bullet_list":
+        return has_list(response)
+    if preferred_format == "numbered_list":
+        return bool(re.search(r"(?m)^\s*\d+[.)]\s+", response))
+    if preferred_format == "sections":
+        return response.count(":") >= 2 or bool(re.search(r"(?m)^#+\s", response))
+    if preferred_format == "paragraph":
+        return "\n" not in response.strip() and not has_list(response)
+    if preferred_format == "json":
+        stripped = response.strip()
+        return stripped.startswith(("{", "[")) and stripped.endswith(("}", "]"))
+    if preferred_format == "code_block":
+        return "```" in response
+    return None

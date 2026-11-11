@@ -1,3 +1,1 @@
-from erratica.policy.prompt_rules import PromptPolicy
-
-__all__ = ["PromptPolicy"]
+"""Live behavior: learned rules, examples, tools, and routing."""

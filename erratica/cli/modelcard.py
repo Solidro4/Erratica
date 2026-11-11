@@ -1,29 +1,28 @@
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 
 from erratica import Erratica
+from erratica.cli.common import add_db_argument
 
 
-def main() -> None:
+def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Generate a verifiable model card from the Erratica learning database."
+        prog="erratica modelcard",
+        description="Generate a model card from the Erratica audit trail.",
     )
-    parser.add_argument("--db", default="data/erratica.db", help="Path to the SQLite database.")
+    add_db_argument(parser)
     parser.add_argument("--name", default="local model", help="Name of the model being published.")
-    parser.add_argument("--out", default=None, help="Optional path to write the card as Markdown.")
-    args = parser.parse_args()
+    parser.add_argument("--out", default=None, help="Write the card to this Markdown file.")
+    args = parser.parse_args(argv)
 
-    ai = Erratica(db_path=args.db)
-    try:
-        card = ai.model_card(model_name=args.name)
+    with Erratica(db_path=args.db) as ai:
         if args.out:
             path = ai.write_model_card(args.out, model_name=args.name)
             print(f"Model card written to {path}")
         else:
-            print(card)
-    finally:
-        ai.close()
+            print(ai.model_card(model_name=args.name))
 
 
 if __name__ == "__main__":

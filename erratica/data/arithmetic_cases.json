@@ -1,0 +1,82 @@
+[
+  {
+    "prompt": "Quarterly revenue by segment (USD). East: 13,537; Retail: 49,131; North: 77,587; Export: 8,802; Online: 67,710. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 216,767 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). North: 10,356; South: 32,744; Retail: 13,089; West: 73,426. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 129,615 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). North: 77,614; South: 9,308; West: 76,842; Wholesale: 77,948; Retail: 53,193. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 294,905 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). West: 56,137; North: 20,107; East: 72,068; Export: 16,639. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 164,951 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Online: 84,943; Services: 25,824; East: 50,010; North: 13,970; Licensing: 72,993; Wholesale: 94,537. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 342,277 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Licensing: 90,381; North: 70,893; West: 57,245; Export: 42,375. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 260,894 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Licensing: 24,762; Export: 92,818; Wholesale: 33,194; East: 11,928; South: 76,490. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 239,192 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Services: 38,940; Export: 81,017; Wholesale: 10,794; Licensing: 16,675; West: 68,300. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "feedback": "the total is wrong",
+    "ideal_response": "Total revenue: 215,726 USD"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). East: 6,338; Wholesale: 88,784; Licensing: 11,373; West: 74,348; Retail: 76,307. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "split": "test"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Wholesale: 10,212; Licensing: 13,467; Export: 36,581; Online: 63,341; West: 92,562. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "split": "test"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). South: 38,502; North: 95,129; Online: 51,766; Wholesale: 88,841; Export: 46,682; West: 4,157. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "split": "test"
+  },
+  {
+    "prompt": "Quarterly revenue by segment (USD). Wholesale: 29,800; East: 38,874; South: 18,152; West: 97,978; North: 33,655. What is the total revenue?",
+    "route": "finance",
+    "issue_type": "wrong_total",
+    "split": "test"
+  }
+]
