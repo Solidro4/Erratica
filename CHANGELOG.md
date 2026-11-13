@@ -75,8 +75,35 @@ trustworthy. Databases from 0.4.0 are upgraded in place when opened.
 - Model cards report how each patch was validated, rollbacks, the share of
   human evidence, and weight cycles with held-out and training scores.
 
+- **Certified mode** (`Erratica(certifier=...)`, `EGate`, `Certifier`,
+  `Behaviour`, `GeneratedStream`, `PoolStream`, `certify`): an e-value gate
+  that bounds the probability of ever installing a patch that harms a
+  protected behaviour, over an unlimited sequence of patches. Hedged
+  betting, log-rate alpha spending, online-fallback budget recycling,
+  early stopping on evidence of harm, route locality, shared samples, and
+  a stored certificate with confidence bounds per behaviour. Gate budget
+  and stream positions persist in the database.
+- Sample reuse (`EGate(reuse=True)`, `BatchCache`,
+  `Erratica.reveal_certificates`): one evaluation batch and one set of
+  reference answers per promotion instead of per candidate, with a
+  two-level error budget and sealed rejection details. Proof in the theory
+  note (Theorem 7).
+- Certificates store their raw data and can be re-verified
+  (`verify_certificate`, `verify_chain`, `Erratica.verify_certificates`).
+- Drift alarm (`Erratica.watch`, `DriftMonitor`): an anytime-valid check
+  that the deployed system is still within the margin of the starting one.
+- Cost planner (`expected_samples`) and the lower bound it is measured
+  against.
+- `docs/THEORY.md`: the guarantee, its assumptions, and the proof.
+- Every promotion decision records a paired sign-flip p-value.
+- `experiments/egate_stress.py` (simulation) and
+  `experiments/certified_run.py` (a certified run on a real local model).
+
 ### Changed
 
+- A candidate rule or example is now tried under the same prompt limits it
+  would face once installed (previously a trial could show one more rule
+  or example than deployment would).
 - `learn_from_feedback`: `issue_type` is optional. Required terms are only
   what the caller passes.
 - `FailureCluster` is keyed by route and issue type.

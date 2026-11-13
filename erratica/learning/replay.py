@@ -87,17 +87,18 @@ class ReplayRunner:
         results: list[dict[str, Any]] = []
         for case in cases:
             route = case.route or self.router.select_route(case.prompt)
-            examples = list(self.recall(case.prompt, route)) if self.recall else []
-            if extra_examples:
-                examples = examples + [
-                    example for example in extra_examples if example["prompt"] != case.prompt
-                ]
+            recalled = list(self.recall(case.prompt, route)) if self.recall else []
+            # A candidate example is never shown to the case it came from.
+            candidates = [
+                example for example in extra_examples or [] if example["prompt"] != case.prompt
+            ]
             system_prompt = self.policy.render_system_prompt(
                 route=route,
                 prompt=case.prompt,
                 extra_rules=extra_rules,
-                extra_examples=examples or None,
+                extra_examples=candidates or None,
                 extra_tools=extra_tools,
+                recalled_examples=recalled or None,
                 exclude_patch_ids=exclude_patch_ids,
             )
             response = active_model.generate(case.prompt, system_prompt, route)

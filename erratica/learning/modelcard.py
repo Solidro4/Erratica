@@ -74,6 +74,11 @@ class ModelCardBuilder:
             lines.append(
                 f"- Live patches validated on held-out cases: {len(held_out)}/{len(live_behavior)}"
             )
+            certified = [patch for patch in live_behavior if patch["details"].get("certificate")]
+            if certified:
+                lines.append(
+                    f"- Live patches with an e-value certificate: {len(certified)}/{len(live_behavior)}"
+                )
 
         lines += ["", "## Learned Behavior", ""]
         if live_behavior:
@@ -141,6 +146,14 @@ class ModelCardBuilder:
                 "manual": "hand-written, judged on all recorded failures",
             }.get(validation, validation)
             parts.append(f"on {details.get('cases_scored', '?')} case(s), {label}")
+        if details.get("p_value") is not None:
+            parts.append(f"p={details['p_value']:.3g}")
+        certificate = details.get("certificate")
+        if certificate and certificate.get("decision") == "promote":
+            parts.append(
+                f"certified on {certificate.get('items_drawn', '?')} fresh samples "
+                f"(candidate {certificate.get('k')}, error budget {certificate.get('alpha', 0.0):.2g})"
+            )
         status = "" if patch["status"] == "promoted" else f" ({patch['status']})"
         return " ".join(parts) + f": {self._describe(patch)}{status}"
 

@@ -8,6 +8,8 @@ from erratica.engine.runner import (
     RuleAwareDemoModel,
 )
 from erratica.learning.critic import Critic, ModelCritic, SelfReviewReport
+from erratica.learning.egate import EGate, expected_samples, verify_certificate, verify_chain
+from erratica.learning.evalstream import Behaviour, Certifier, GeneratedStream, PoolStream, certify
 from erratica.learning.exporter import ExportReport, TrainingDataExporter
 from erratica.learning.modelcard import ModelCardBuilder
 from erratica.learning.promoter import PromotionDecision
@@ -23,14 +25,18 @@ __version__ = "0.5.0"
 
 __all__ = [
     "AuditFinding",
+    "Behaviour",
+    "Certifier",
     "CommandTrainer",
     "ConsolidationReport",
     "Critic",
     "Domain",
     "DomainRegistry",
+    "EGate",
     "EmbeddingSimilarityScorer",
     "Erratica",
     "ExportReport",
+    "GeneratedStream",
     "GenerationResult",
     "HybridStringSimilarityScorer",
     "MistakeTriage",
@@ -39,6 +45,7 @@ __all__ = [
     "ModelCritic",
     "ModelTrainer",
     "OllamaEmbeddingScorer",
+    "PoolStream",
     "PromotionDecision",
     "RuleAwareDemoModel",
     "SelfReviewReport",
@@ -46,4 +53,8 @@ __all__ = [
     "TriageVerdict",
     "WeightCycleReport",
     "WeightLoop",
+    "certify",
+    "expected_samples",
+    "verify_certificate",
+    "verify_chain",
 ]

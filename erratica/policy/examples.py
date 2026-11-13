@@ -43,11 +43,21 @@ class ExampleStore:
         limit: int = 2,
         extra: Optional[list[dict[str, str]]] = None,
         *,
+        recalled: Optional[list[dict[str, str]]] = None,
         exclude_patch_ids: Collection[int] = (),
     ) -> str:
-        examples = self.active_examples(route=route, limit=limit, exclude_patch_ids=exclude_patch_ids)
+        """Render the examples for a route.
+
+        ``extra`` are candidate examples being tried out. They are treated
+        exactly as if they had just been installed: newest first, and the
+        ``limit`` applies to them and the installed ones together, so what
+        is tested is what would be deployed. ``recalled`` are corrections
+        recalled for this one request; they are shown in addition.
+        """
+        installed = self.active_examples(route=route, limit=limit, exclude_patch_ids=exclude_patch_ids)
+        examples = (list(extra or []) + installed)[:limit]
         seen = {example["prompt"] for example in examples}
-        for example in extra or []:
+        for example in recalled or []:
             if example["prompt"] not in seen:
                 seen.add(example["prompt"])
                 examples.append(example)

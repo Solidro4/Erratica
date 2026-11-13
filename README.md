@@ -154,6 +154,155 @@ people. They show the loop doing its job on a real model. They are not a
 benchmark of how much any model improves in general. Run the command on your
 own model and data to get numbers that mean something for you.
 
+## Certified mode
+
+The gate described above is a heuristic: a mean has to rise by a fixed
+amount on a handful of held-out cases. Each decision records a p-value so
+you can see how little three cases prove (never below 0.125), and over
+hundreds of patches a heuristic gate will let regressions through by chance.
+
+Certified mode adds a second gate with a guarantee:
+
+> With probability at least 1 - delta, over an unlimited sequence of
+> candidate patches, every patch that is ever installed (a) leaves the true
+> mean score of each protected behaviour less than `margin` below the
+> starting system's, and (b) truly raises the mean score of its task over
+> the system it replaced.
+
+The exact statement, the assumptions, and the proof are in
+[docs/THEORY.md](docs/THEORY.md).
+
+```python
+from erratica import Behaviour, Certifier, EGate, Erratica, GeneratedStream
+
+tickets = GeneratedStream(make_ticket)          # fresh prompts on demand, each used once
+
+certifier = Certifier(
+    gate=EGate(["brevity", "grounded"], delta=0.05, margin=0.05),
+    protected=[
+        Behaviour("brevity", tickets, is_brief, route="support"),
+        Behaviour("grounded", tickets, is_grounded, route="support"),
+    ],
+    tasks={"support": Behaviour("quality", tickets, quality_score, route="support")},
+)
+ai = Erratica(model=my_model, enable_recall=False, certifier=certifier)
+```
+
+The usual checks now act as a cheap screen. A patch that passes them is
+tested on fresh samples by an e-value gate (`erratica/learning/egate.py`),
+and is installed only with a certificate, which is stored in the audit
+trail. How it works, briefly:
+
+- **One test.** Paired score differences between the candidate and the
+  original system feed a betting e-process. Under "the candidate is worse
+  by the margin" its wealth is a supermartingale, so the chance it ever
+  reaches `1/alpha` is at most `alpha`, whenever you stop.
+- **The bet** hedges a mixture over a grid of bets with a
+  follow-the-leader bettor. That is always valid and never more than
+  `log(2K)` behind the best fixed bet on the grid.
+- **Many behaviours** need no correction: a patch must pass all of them, so
+  a bad patch gets through only if the test of the behaviour it harms errs.
+- **Many candidates** each get a share of delta from a series that sums to
+  it, decaying like `1/(k log^2 k)`, so the evidence needed grows like
+  `log k`.
+- **Recycled budget.** A promoted candidate hands its level to the next one
+  (online fallback), which is free under arbitrary dependence.
+- **Early stop.** A mirror-image test collects evidence that the candidate
+  is worse than its reference at all, and ends the test when it is strong.
+  That cannot cause a wrong promotion, and a candidate that is truly no
+  worse is lost this way with probability at most 2%.
+- **Locality.** A patch scoped to one route cannot change answers on
+  another, so only behaviours on its route are re-tested.
+- **Shared samples.** Behaviours on the same stream score the same
+  answers, so one model call serves all of them.
+
+**Reusing samples.** `EGate(..., reuse=True)` lets every candidate since the
+last promotion be tested on the same batch of samples, with the baseline's
+answers computed once for all of them. The guarantee is unchanged
+(Theorem 7 in the theory note) provided the patch writer learns nothing
+from a rejection except that it happened, so in this mode the details of a
+rejected test are sealed until the batch is retired by a promotion or by
+`ai.reveal_certificates()`.
+
+In the simulation (8 sequences of 3,000 candidates, 90% regressions), per
+installed good patch:
+
+| setting | good patches installed | fresh evaluation items | model calls |
+|---|---|---|---|
+| no reuse, early stop at 2% | 98.4% | 3,351 | 10,054 |
+| reuse, early stop at 2% | 98.4% | 989 | 5,379 |
+| reuse, early stop at 0.5% | 99.7% | 1,008 | 6,048 |
+
+No regression was installed in any of the three. Model calls assume one
+answer from the candidate and two reference answers per item.
+
+**Certificates you can check.** Each certificate stores the raw paired
+differences of every test. `ai.verify_certificates()` replays them all and
+checks that error budget was only ever passed on from a promoted candidate
+to the next; `verify_certificate` does one from its JSON alone.
+
+**After certification.** A certificate describes the system as it was. If a
+model file is swapped or a scorer changes, it no longer applies.
+`ai.watch()` compares the deployed system with the starting one on fresh
+samples and raises an alarm on strong evidence of harm beyond the margin,
+with a false-alarm probability of at most 1% over the system's whole life,
+however often you look.
+
+**What it costs.** `expected_samples(alpha, margin, gains=..., losses=...)`
+estimates a test's sample cost before you run it. For a behaviour a patch
+leaves untouched the cost is about `log(1/alpha) / margin`, and the docs
+prove no valid test of bounded scores can beat
+`log(1/alpha) / log(1/(1 - margin))`; this implementation is within about
+12% of that rate.
+
+What it assumes: scores are in [0, 1]; each evaluation sample is used once
+and is independent of the patch it judges (`GeneratedStream` and
+`PoolStream` enforce single use; keeping the items away from whatever
+writes patches is up to you); and the scorers measure what you care about.
+The margin cannot be zero, because a patch that changes nothing gives no
+evidence of being better. Experience recall must be off, since recalled
+corrections change answers without passing any gate; weight cycles are
+refused; and only the newest patch of a route can be rolled back, because
+removing one from underneath another would leave a system that was never
+certified.
+
+**Simulation.** `experiments/egate_stress.py` runs sequences of 5,000
+candidates, 90% of them regressions on one protected behaviour that still
+look like improvements on the task, half of those exactly on the margin
+(delta 0.05, margin 0.05, 20 sequences):
+
+| gate | regressions installed | good patches installed | samples per installed good patch, all costs included |
+|---|---|---|---|
+| heuristic (3 held-out cases) | 18,410 of 90,070 (20.4%) | 26% | a handful |
+| e-value gate, first version | 1 of 90,070 | 57% | not measured |
+| e-value gate, no early stop | 0 of 22,479 (5 sequences) | 100% | about 18,800 |
+| e-value gate, current | 1 of 90,070 | 98.3% | about 3,400 |
+
+The one regression the e-value gate installed was the first candidate of
+one sequence, where the budget is largest: 1 sequence in 20, against a
+guaranteed limit of 5%. A certified good patch needs about 670 to 1,030
+samples itself; the rest of the all-in cost is what rejected candidates
+consume. Early stopping cuts that from 2,000 samples per rejected
+regression to about 260, at the price of 1.7% of good patches (the bound
+is 2%). The last column is what the guarantee costs.
+
+**On a real model.** `experiments/certified_run.py` with `phi4-mini`
+(3.8B) on support tickets, delta 0.10, margin 0.10. Three candidate rules
+were tried; two were written to look helpful while doing damage. Each
+system was then measured on 60 fresh tickets the gate never saw.
+
+| candidate | heuristic screen | e-value gate | measured afterwards (change vs untouched model) |
+|---|---|---|---|
+| verbose replies | passed | rejected after 10 tickets | brevity -0.90, quality +0.22 |
+| invented reference number | passed | rejected after 15 tickets | groundedness -0.70, quality +0.34 |
+| rule from the learning cycle | passed | certified after 61 tickets | quality +0.30, placeholders +0.87, nothing worse |
+
+The heuristic gate would have installed all three. The e-value gate
+installed only the one the independent measurement found harmless, using
+172 model calls in total, and all three certificates replay from their
+stored data. This is one model, one task, three candidates: an example of
+the gate working as designed, not a measurement of its error rate.
+
 ## Bring your own domain
 
 The loop is domain-agnostic. A domain pack tells it how to recognise a kind
@@ -310,11 +459,14 @@ training scores side by side. Anyone holding the database can check it.
   good early and stop helping.
 - Keyword routing is a convenience. Pass `route=` when you know the task.
 - A single SQLite connection is used; share one `Erratica` per process.
+- Certified mode covers rules, examples, and tools. Fine-tunes are not
+  certified, and its guarantee is about your scorers on your evaluation
+  stream, not about the world.
 
 ## Development
 
 ```bash
-python -m unittest        # 73 tests, no dependencies, about 20 seconds
+python -m unittest        # 141 tests, no dependencies, under a minute
 python -m erratica demo
 ```
 

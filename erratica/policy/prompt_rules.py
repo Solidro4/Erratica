@@ -78,22 +78,30 @@ class PromptPolicy:
         extra_rules: Optional[list[str]] = None,
         extra_examples: Optional[list[dict[str, str]]] = None,
         extra_tools: Optional[list[dict[str, str]]] = None,
+        recalled_examples: Optional[list[dict[str, str]]] = None,
         exclude_patch_ids: Collection[int] = (),
+        bare: bool = False,
     ) -> str:
         """Build the system prompt for one request.
 
         ``prompt`` is only needed for tools, which compute their note from
         it. The ``extra_*`` arguments let a candidate patch be tried without
-        installing it; ``exclude_patch_ids`` does the opposite and hides an
-        installed patch, which is how the audit measures what each one adds.
+        installing it, under the same limits it would face once installed.
+        ``exclude_patch_ids`` does the opposite and hides an installed
+        patch, which is how the audit measures what each one adds.
+        ``recalled_examples`` are corrections recalled for this request.
+        ``bare`` renders the starting system: no learned rules, examples,
+        or tools at all.
         """
         lines = list(_BASE_RULES)
         domain = self.registry.get(route)
         lines.append(f"Task type: {route}." + (f" {domain.description}" if domain.description else ""))
+        if bare:
+            return "\n".join(lines)
 
         rules = self.active_rules(route, exclude_patch_ids=exclude_patch_ids)
         if extra_rules:
-            rules = rules + list(extra_rules)
+            rules = (rules + list(extra_rules))[-self.max_rules :]
         if rules:
             lines.append("Learned rules:")
             for index, rule in enumerate(rules, start=1):
@@ -103,6 +111,7 @@ class PromptPolicy:
             route=route,
             limit=self.max_examples,
             extra=extra_examples,
+            recalled=recalled_examples,
             exclude_patch_ids=exclude_patch_ids,
         )
         if rendered_examples:

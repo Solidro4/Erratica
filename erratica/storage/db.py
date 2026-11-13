@@ -556,6 +556,20 @@ class Database:
             "recent_triage": self.list_triage(limit=10),
         }
 
+    def get_state(self, key: str, default: Any = None) -> Any:
+        row = self.connection.execute(
+            "SELECT value_json FROM state WHERE key = ?", (key,)
+        ).fetchone()
+        return json.loads(row["value_json"]) if row else default
+
+    def set_state(self, key: str, value: Any) -> None:
+        self.connection.execute(
+            "INSERT INTO state (key, value_json) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+            (key, json.dumps(value)),
+        )
+        self.connection.commit()
+
     def close(self) -> None:
         self.connection.close()
 

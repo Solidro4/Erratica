@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS mistake_triage (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS state (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_feedback_issue_type ON feedback(issue_type);
 CREATE INDEX IF NOT EXISTS idx_feedback_interaction_id ON feedback(interaction_id);
 CREATE INDEX IF NOT EXISTS idx_patches_status ON patches(status);

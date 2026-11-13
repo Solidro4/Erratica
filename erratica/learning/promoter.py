@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import itertools
+import random
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from erratica.domains import DomainRegistry
 from erratica.learning.evaluator import EvaluationSummary
@@ -26,6 +28,40 @@ class PromotionDecision:
     # "in_sample": too few cases to hold any out; weak evidence.
     validation: str = "in_sample"
     cases_scored: int = 0
+    # Chance of seeing an improvement this large on these cases if the
+    # patch did nothing (paired sign-flip test). With three cases it cannot
+    # go below 0.125: that is how little three cases can prove.
+    p_value: Optional[float] = None
+    # Set in certified mode: the e-value gate's certificate.
+    certificate: Optional[dict] = None
+
+
+def paired_p_value(deltas: Sequence[float], *, exact_up_to: int = 12, draws: int = 5000) -> Optional[float]:
+    """One-sided sign-flip test that the mean per-case change is positive.
+
+    Under "the patch does nothing" each case's change is as likely to be
+    its negative, so the observed mean is compared with the means over all
+    sign assignments (enumerated when there are few cases, sampled with a
+    fixed seed otherwise).
+    """
+    values = [float(delta) for delta in deltas]
+    if not values:
+        return None
+    observed = sum(values)
+    magnitudes = [abs(value) for value in values]
+    if len(values) <= exact_up_to:
+        outcomes = [
+            sum(sign * magnitude for sign, magnitude in zip(signs, magnitudes))
+            for signs in itertools.product((1.0, -1.0), repeat=len(values))
+        ]
+        return sum(outcome >= observed - 1e-12 for outcome in outcomes) / len(outcomes)
+    rng = random.Random(0)
+    hits = sum(
+        sum(magnitude if rng.random() < 0.5 else -magnitude for magnitude in magnitudes)
+        >= observed - 1e-12
+        for _ in range(draws)
+    )
+    return (hits + 1) / (draws + 1)
 
 
 class PatchPromoter:
@@ -80,10 +116,17 @@ class PatchPromoter:
         wins: Optional[EvaluationSummary] = None,
         validation: str = "in_sample",
         extra_details: Optional[dict[str, Any]] = None,
+        certify: Optional[Callable[[], dict]] = None,
     ) -> PromotionDecision:
         """``regression`` is replay on other failures of the route; ``wins``
         is replay on answers a user approved. Both are optional because a
-        fresh database has neither."""
+        fresh database has neither.
+
+        ``certify``, when given, is called only for a patch that passed
+        every check above. It runs the e-value gate on fresh samples and
+        returns its certificate; the patch is installed only if that says
+        "promote". The checks above then act as the cheap screen that
+        decides which candidates are worth spending certified budget on."""
         patch_id = self._record(proposal)
         min_delta, tolerance = self.gates_for(proposal.route)
 
@@ -121,9 +164,23 @@ class PatchPromoter:
                 "improved in-sample cases with no regression (too few cases to hold out)",
             )
 
+        p_value = paired_p_value([item["delta"] for item in evaluation.case_deltas])
+        certificate = None
+        if accepted and certify is not None:
+            certificate = certify()
+            if certificate.get("decision") != "promote":
+                accepted = False
+                reason = "passed the screen but failed certification: " + _why_not(certificate)
+            else:
+                reason = (
+                    f"certified on fresh samples (candidate {certificate.get('k')}, "
+                    f"error budget {certificate.get('alpha', 0.0):.2g})"
+                )
+
         details: dict[str, Any] = {
             "reason": reason,
             "validation": validation,
+            "p_value": p_value,
             "cases_scored": evaluation.scored,
             "cases_unscorable": evaluation.unscorable,
             "cases_improved": evaluation.improved,
@@ -137,6 +194,8 @@ class PatchPromoter:
         }
         if extra_details:
             details.update(extra_details)
+        if certificate is not None:
+            details["certificate"] = certificate
 
         self.db.update_patch_status(
             patch_id=patch_id,
@@ -161,6 +220,8 @@ class PatchPromoter:
             route=proposal.route,
             validation=validation,
             cases_scored=evaluation.scored,
+            p_value=p_value,
+            certificate=certificate,
         )
 
     def reject(self, proposal: PatchProposal, reason: str) -> PromotionDecision:
@@ -230,3 +291,30 @@ class PatchPromoter:
                 source_patch_id=patch_id,
                 route=proposal.route,
             )
+
+
+def why_not(certificate: dict) -> str:
+    """Plain-words reason a certificate did not lead to promotion."""
+    return _why_not(certificate)
+
+
+def _why_not(certificate: dict) -> str:
+    if certificate.get("note"):
+        return str(certificate["note"])
+    stopped = certificate.get("stopped_early_on") or []
+    if stopped:
+        harmed = sorted(name for name in stopped if name != "task")
+        if harmed:
+            return "evidence that it harms: " + ", ".join(harmed)
+        return "evidence that it does not improve the task"
+    failed = [
+        name
+        for name, entry in (certificate.get("protected") or {}).items()
+        if not entry.get("crossed")
+    ]
+    if failed:
+        return "no proof that it leaves these unharmed: " + ", ".join(sorted(failed))
+    task = certificate.get("task")
+    if task is not None and not task.get("crossed"):
+        return "no proof of improvement on the task"
+    return "not enough evidence"

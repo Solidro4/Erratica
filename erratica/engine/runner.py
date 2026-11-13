@@ -10,6 +10,8 @@ from erratica.engine.feedback import FeedbackIngestor
 from erratica.engine.memory import MemoryStore
 from erratica.learning.clustering import FailureCluster, FailureClusterer, is_failing
 from erratica.learning.critic import SelfReviewer, SelfReviewReport
+from erratica.learning.egate import verify_chain
+from erratica.learning.evalstream import Certifier, StreamExhausted, certify
 from erratica.learning.evaluator import PatchEvaluator
 from erratica.learning.exporter import ExportReport, TrainingDataExporter
 from erratica.learning.modelcard import ModelCardBuilder
@@ -20,7 +22,7 @@ from erratica.learning.patcher import (
     PromptRulePatcher,
     ToolPatcher,
 )
-from erratica.learning.promoter import PatchPromoter, PromotionDecision
+from erratica.learning.promoter import PatchPromoter, PromotionDecision, why_not
 from erratica.learning.replay import ReplayCase, ReplayDatasetBuilder, ReplayRunner
 from erratica.learning.similarity import SimilarityScorer
 from erratica.learning.splits import split_cases
@@ -112,6 +114,12 @@ class Erratica:
             answer time, as if a person had written them.
         tool_attempts: how many drafts of a tool the proposer gets. After a
             draft fails on the training cases it is shown what went wrong.
+        certifier: turns on certified mode. Every patch that passes the
+            usual checks must then also pass an e-value gate on fresh
+            evaluation samples before it is installed, which bounds the
+            chance of ever installing a harmful patch (see
+            ``erratica.learning.egate``). Needs ``enable_recall=False``:
+            recalled corrections change answers without passing any gate.
     """
 
     def __init__(
@@ -130,15 +138,26 @@ class Erratica:
         min_delta: float = 0.05,
         regression_tolerance: float = 0.02,
         tool_attempts: int = 3,
+        certifier: Optional[Certifier] = None,
     ) -> None:
+        if certifier is not None and enable_recall:
+            raise ValueError(
+                "certified mode needs enable_recall=False: recalled corrections change "
+                "answers immediately, without passing the gate"
+            )
         self.db = Database(db_path)
         self.tool_attempts = max(1, tool_attempts)
+        self.certifier = certifier
+        if certifier is not None:
+            certifier.restore(self.db.get_state("certifier"))
         self.registry = DomainRegistry(list(domains) if domains is not None else None)
         self.memory = MemoryStore(self.db)
         self.feedback = FeedbackIngestor(self.db)
         self.policy = PromptPolicy(self.db, registry=self.registry, enable_tools=enable_tools)
         self.router = RoutingPolicy(self.registry)
         self.model = model or RuleAwareDemoModel()
+        # The starting system. Certified mode measures every change against it.
+        self.base_model = self.model
         self.proposer = proposer
         self.enable_tools = enable_tools
         self.enable_recall = enable_recall
@@ -200,7 +219,7 @@ class Erratica:
         system_prompt = self.policy.render_system_prompt(
             route=route,
             prompt=prompt,
-            extra_examples=recalled or None,
+            recalled_examples=recalled or None,
         )
         response = self.model.generate(prompt, system_prompt, route)
         interaction_id = self.memory.record_interaction(
@@ -391,7 +410,141 @@ class Erratica:
             wins=wins_summary,
             validation=mode,
             extra_details=extra_details,
+            certify=(lambda: self._certify(proposal)) if self.certifier is not None else None,
         )
+
+    def _certify(self, proposal: PatchProposal) -> dict:
+        """Run one proposal through the e-value gate on fresh samples.
+
+        Three systems answer each sample: the candidate (current policy
+        plus the proposal), the incumbent (current policy), and the
+        baseline (the starting model with no learned behavior at all).
+        Protected behaviours are compared with the baseline, the task with
+        the incumbent. Behaviours on other routes are not re-tested: a
+        patch scoped to one route leaves their prompts, and so their
+        answers, exactly as they were.
+        """
+        certifier = self.certifier
+        protected = certifier.affected_by(proposal.route)
+        task = certifier.tasks.get(proposal.route)
+        if not protected and task is None:
+            return {
+                "decision": "reject",
+                "note": f"no evaluation stream covers route '{proposal.route}'",
+            }
+
+        extras: dict[str, Any] = {}
+        if proposal.patch_type == "few_shot":
+            extras["extra_examples"] = [
+                {"prompt": proposal.example_prompt or "", "response": proposal.example_response or ""}
+            ]
+        elif proposal.patch_type == "tool":
+            extras["extra_tools"] = [
+                {"name": proposal.tool_name or "tool", "source": proposal.tool_source or ""}
+            ]
+        else:
+            extras["extra_rules"] = [proposal.rule_text]
+
+        def answer(model: Any, **render: Any):
+            def run(prompt: str, route: Optional[str]) -> str:
+                route = route or self.router.select_route(prompt)
+                system_prompt = self.policy.render_system_prompt(route=route, prompt=prompt, **render)
+                return model.generate(prompt, system_prompt, route)
+
+            return run
+
+        # While nothing has been learned on this route the deployed system
+        # IS the baseline, and one answer can serve as both.
+        untouched = (
+            self.model is self.base_model
+            and proposal.route is not None
+            and not self.policy.active_rules(proposal.route)
+            and not self.policy.examples.active_examples(proposal.route)
+            and not self.policy.active_tools(proposal.route)
+        )
+        try:
+            certificate = certify(
+                certifier.gate,
+                candidate=answer(self.model, **extras),
+                baseline=answer(self.base_model, bare=True),
+                incumbent=None if untouched else answer(self.model),
+                protected=protected,
+                task=task,
+                cache=certifier.cache if certifier.gate.reuse else None,
+            )
+        finally:
+            # Budget and samples are spent even if the run is interrupted.
+            self.db.set_state("certifier", certifier.state())
+        if certifier.gate.reuse:
+            if certificate.get("decision") == "promote":
+                # The batch is retired: its samples are never read again, so
+                # what earlier candidates did on it can now be shown.
+                certifier.cache.clear()
+                self._unseal()
+            else:
+                certificate = self._seal(certificate)
+        return certificate
+
+    def _seal(self, certificate: dict) -> dict:
+        """Put a rejected test's details away until its batch is retired.
+
+        While a batch is being reused, the only thing that may influence
+        later candidates is the fact of a rejection. Which behaviour failed,
+        after how many samples, with what scores: all of that describes the
+        batch, and a candidate shaped by it would no longer be independent
+        of the samples that judge it.
+        """
+        sealed = self.db.get_state("sealed_certificates", {})
+        sealed[str(certificate.get("k"))] = certificate
+        self.db.set_state("sealed_certificates", sealed)
+        return {
+            "decision": "reject",
+            "sealed": True,
+            "k": certificate.get("k"),
+            "batch": certificate.get("batch"),
+            "position": certificate.get("position"),
+            "note": "details are sealed until this evaluation batch is retired",
+        }
+
+    def _unseal(self) -> int:
+        sealed = self.db.get_state("sealed_certificates", {})
+        if not sealed:
+            return 0
+        opened = 0
+        for patch in self.db.list_patch_history(limit=100000):
+            stub = patch["details"].get("certificate")
+            if not (isinstance(stub, dict) and stub.get("sealed")):
+                continue
+            full = sealed.get(str(stub.get("k")))
+            if full is None:
+                continue
+            self.db.update_patch_status(
+                patch_id=patch["id"],
+                status=patch["status"],
+                details={
+                    "certificate": full,
+                    "reason": "passed the screen but failed certification: " + why_not(full),
+                },
+            )
+            opened += 1
+        self.db.set_state("sealed_certificates", {})
+        return opened
+
+    def reveal_certificates(self) -> int:
+        """Retire the current evaluation batch and unseal its rejected tests.
+
+        Only matters when samples are reused. Use it when you want to read
+        why candidates were rejected before any has been promoted. The next
+        candidate will be tested on a fresh batch. Returns how many
+        certificates were unsealed.
+        """
+        if self.certifier is None:
+            raise ValueError("reveal_certificates() needs certified mode")
+        self.certifier.gate.retire_batch()
+        self.certifier.cache.clear()
+        opened = self._unseal()
+        self.db.set_state("certifier", self.certifier.state())
+        return opened
 
     def propose_rule(
         self,
@@ -595,6 +748,10 @@ class Erratica:
         fine-tune may have made it redundant). With ``prune`` it is rolled
         back, so the prompt does not grow forever.
         """
+        if self.certifier is not None:
+            # Removing a patch from the middle would leave a system that was
+            # never certified as a whole, so certified mode only reports.
+            prune = False
         failures = [
             row for row in self.memory.failed_interactions(limit=limit * 5) if is_failing(row)
         ]
@@ -654,8 +811,112 @@ class Erratica:
             )
         return findings
 
+    def watch(self, items: int = 20) -> dict:
+        """Check on fresh samples that the deployed system still holds up.
+
+        Certified mode only. Draws ``items`` unused samples per evaluation
+        stream, answers each with the deployed system and with the starting
+        system, and feeds the drift monitor. Returns its report, including
+        ``alarms``: behaviours for which there is now strong evidence of
+        harm beyond the margin. Run it on a schedule; looking often does
+        not raise the false-alarm rate. Routes with nothing learned are
+        skipped, since there the deployed system is the starting system.
+        """
+        if self.certifier is None:
+            raise ValueError("watch() needs certified mode (pass certifier=...)")
+        certifier = self.certifier
+        streams: list = []
+        for behaviour in certifier.protected:
+            for group in streams:
+                if group[0].stream is behaviour.stream:
+                    group.append(behaviour)
+                    break
+            else:
+                streams.append([behaviour])
+
+        exhausted = []
+        try:
+            for group in streams:
+                lead = group[0]
+                changed = (
+                    self.model is not self.base_model
+                    or lead.route is None
+                    or self.policy.active_rules(lead.route)
+                    or self.policy.examples.active_examples(lead.route)
+                    or self.policy.active_tools(lead.route)
+                )
+                if not changed:
+                    continue
+                for _ in range(items):
+                    try:
+                        item = lead.stream.draw()
+                    except StreamExhausted:
+                        exhausted.append(lead.name)
+                        break
+                    text = lead.prompt(item) if lead.prompt else item
+                    route = lead.route or self.router.select_route(text)
+                    deployed = self.model.generate(
+                        text, self.policy.render_system_prompt(route=route, prompt=text), route
+                    )
+                    baseline = self.base_model.generate(
+                        text, self.policy.render_system_prompt(route=route, prompt=text, bare=True), route
+                    )
+                    for behaviour in group:
+                        certifier.monitor.add(
+                            behaviour.name,
+                            behaviour.score(item, deployed),
+                            behaviour.score(item, baseline),
+                        )
+        finally:
+            self.db.set_state("certifier", certifier.state())
+        return {
+            "alarms": certifier.monitor.alarms(),
+            "behaviours": certifier.monitor.report(),
+            "streams_exhausted": exhausted,
+        }
+
+    def verify_certificates(self) -> list:
+        """Replay every stored certificate from its raw data.
+
+        Returns a list of problems; empty means every recorded gate decision
+        follows from the recorded samples, and error budget was only ever
+        passed on from a promoted candidate to the next one.
+        """
+        sealed = self.db.get_state("sealed_certificates", {})
+        certificates = []
+        for patch in self.db.list_patch_history(limit=100000):
+            certificate = patch["details"].get("certificate")
+            if not (isinstance(certificate, dict) and "k" in certificate):
+                continue
+            if certificate.get("sealed"):
+                certificate = sealed.get(str(certificate["k"]))
+                if certificate is None:
+                    continue
+            certificates.append(certificate)
+        return verify_chain(certificates)
+
     def rollback(self, patch_id: int, *, reason: str = "manual rollback") -> bool:
-        """Undo one promoted rule, example, or tool. Recorded in the audit trail."""
+        """Undo one promoted rule, example, or tool. Recorded in the audit trail.
+
+        In certified mode only the most recent live patch of a route can be
+        undone. That returns the route to a system that was itself
+        certified; removing an older patch would not.
+        """
+        if self.certifier is not None:
+            patch = self.db.get_patch(patch_id)
+            if patch is not None and patch["status"] == "promoted":
+                newer = [
+                    other["id"]
+                    for other in self.db.list_patch_history(limit=100000, status="promoted")
+                    if other["patch_type"] in _AUDITABLE
+                    and other["route"] == patch["route"]
+                    and other["id"] > patch_id
+                ]
+                if newer:
+                    raise ValueError(
+                        f"certified mode: roll back patch #{max(newer)} first; removing #{patch_id} "
+                        "from underneath it would leave an uncertified system"
+                    )
         return self.promoter.rollback(patch_id, reason)
 
     # ------------------------------------------------------------------
@@ -710,6 +971,11 @@ class Erratica:
         """Fine-tune on recorded corrections and keep the result only if it
         wins on failures that were held out of the training data, without
         getting worse on approved answers."""
+        if self.certifier is not None:
+            raise NotImplementedError(
+                "weight cycles are not certified yet: a fine-tune can change every route "
+                "at once, and the e-value gate is only wired up for route-scoped patches"
+            )
         loop = WeightLoop(
             self.db,
             self.exporter,
