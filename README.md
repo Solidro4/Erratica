@@ -2,24 +2,26 @@
 
 > Your AI should not make the same mistake twice. And it should be able to prove it.
 
-Erratica wraps a local language model in a learning loop. When the model gets
-something wrong and someone says so, Erratica proposes a fix, replays past
-failures to see whether the fix works, and installs it only if it measurably
-helps on cases it was **not** written from, without breaking answers people
-already approved.
+Erratica controls how an AI system is allowed to change. Mistakes go on a
+record. A candidate fix is replayed against that record and installed only
+if it measurably helps on cases it was **not** written from, without
+breaking answers people approved. Every decision is stored with its
+evidence, and every installed change can be taken out again.
 
-It has no required dependencies, stores everything in one SQLite file, and
-works with any model you can call from Python (llama.cpp, Ollama, or your
-own adapter).
+It is not another agent framework. CrewAI, LangGraph and the like build the
+agent; Erratica decides whether a change to it is allowed to ship. It works
+around anything you can call: one prompt, a chain, a crew of agents, a
+retrieval pipeline. It has no required dependencies and keeps its record in
+one SQLite file.
 
 ```text
-answer -> feedback -> triage -> propose a fix -> replay on held-out failures
-                                                        |
-                              regression guard on approved answers
-                                                        |
-                                              promote or reject
-                                                        |
-                              audit: switch each patch off, keep what still helps
+run -> feedback -> propose a change -> judge on held-out failures
+                                              |
+                              guard: approved answers, other failures
+                                              |
+                                      install or reject
+                                              |
+                      audit: switch each change off, keep what still helps
 ```
 
 ## Install
@@ -28,20 +30,189 @@ answer -> feedback -> triage -> propose a fix -> replay on held-out failures
 git clone https://github.com/Solidro4/Erratica
 cd Erratica
 pip install .
+python examples/quickstart.py     # no model needed
 ```
 
 Optional extras: `pip install ".[llama]"` for local `.gguf` models through
 llama-cpp-python, `pip install ".[embeddings]"` for sentence-transformers
 similarity. Ollama needs no extra: Erratica talks to it over HTTP.
 
-Then:
+## Start here
+
+**You have a system and want to know whether a new version is safe to ship.**
+
+```python
+from erratica import Loop
+
+loop = Loop(my_agent)                     # any callable: input -> output
+
+run = loop.run("Summarise the sleep study")
+loop.fail(run, issue="missing_citation", must=["[source]"])    # a mistake, and what was missing
+loop.approve(loop.run("What is a p-value?"), must=["p-value"]) # a good answer, and what made it good
+
+verdict = loop.judge(my_new_agent)        # replays the record; installs nothing
+print(verdict.accepted, verdict.reason, verdict.before, verdict.after)
+```
+
+**You want the system to fix itself, under control.** Build it from a
+configuration, and the loop can propose changes, install the ones that pass,
+and undo them.
+
+```python
+from erratica import Loop, ollama, prompted
+from erratica.core.proposers import rules_from_feedback, rule_from_model
+
+llm = ollama("phi4-mini:3.8b")            # or any function (system_prompt, request) -> text
+loop = Loop(
+    build=prompted(llm, base="You are a research assistant."),
+    config={"rules": []},
+    proposers=[rules_from_feedback(), rule_from_model(lambda p: llm("", p))],
+    store="errata.db",
+)
+
+# ... loop.run / loop.fail / loop.approve as above, for as long as you like ...
+
+for verdict in loop.learn():              # written from some failures, judged on the others
+    print(verdict.installed, verdict.change, verdict.validation, verdict.reason)
+
+loop.audit()                              # drop changes that stopped earning their place
+loop.rollback()                           # undo the newest one
+```
+
+## Shape it to what you need
+
+Nothing in the loop is fixed. Each stage is an argument, and each is a plain
+function or a small object.
+
+| Stage | What it is | Built in | Your own |
+|---|---|---|---|
+| System | `input -> output` | `prompted(llm)` for one model with a prompt | `build(config)` returning any callable |
+| Checks | `(case, output) -> score` | required terms, reference answer, regex, length, JSON, a model as grader | any function; it reads what it needs from the case |
+| Gate | `(trial) -> verdict` | `ReplayGate`, `CertifiedGate`, `all_of(...)` | any function returning a bool or `(bool, reason)` |
+| Proposers | `(context) -> changes` | rule from feedback, rule written by a model, worked example, other values for a setting | any function that yields a `Change` |
+| Store | where the record lives | memory, one SQLite file | any object with five methods |
+
+A change is data, not code, so it is not limited to prompts:
+
+```python
+from erratica import Change
+
+Change.append("rules", "Cite every claim with a [source] marker.")
+Change.set("model", "a-larger-model")
+Change.set("retriever.top_k", 5) + Change.set("retriever.rerank", True)
+```
+
+### With CrewAI
+
+`build(config)` is where a framework goes. `examples/crewai_crew.py` builds
+a CrewAI crew from the configuration and lets the loop manage it:
+
+```python
+def build(config):
+    agent = Agent(role="Customer support agent", goal="Resolve the customer's request in one reply",
+                  backstory=backstory_with(config["rules"]), llm=LLM(model=config["model"]))
+    task = Task(description="{request}", expected_output="A reply to the customer.", agent=agent)
+    crew = Crew(agents=[agent], tasks=[task])
+    return lambda request: crew.kickoff(inputs={"request": request}).raw
+
+loop = Loop(build=build, config={"model": "ollama/phi4-mini:3.8b", "rules": []}, ...)
+```
+
+One run of that example (CrewAI 1.15, `phi4-mini` through Ollama): of 8
+support requests, 3 replies left out the order number or a timeframe and
+were recorded. A rule was installed after scoring 0.75 -> 1.00 on the 2
+held-out failures (p = 0.167), and 4 requests the loop never saw feedback
+on went from 0.69 to 1.00. One run, one small model, two regular-expression
+checks.
+
+`examples/any_system.py` puts the loop around a document search with a
+custom check, proposer and gate in about a hundred lines. The reference for
+every stage is [docs/CORE.md](docs/CORE.md).
+
+## How strong is the evidence?
+
+Every verdict says how it was reached, so a weak result cannot pass as a
+strong one.
+
+- **Held out or in sample.** `learn` splits an issue's failures by input,
+  writes fixes from one side and judges them on the other. With fewer than
+  three distinct failures there is nothing to hold out and the verdict says
+  `in_sample`. `ReplayGate(require_holdout=True)` refuses those.
+- **Beyond the noise.** Each system answers each case twice by default, and
+  a gain is installed only if it stands out from the system's own
+  run-to-run scatter (the verdict carries the p-value). A model that
+  rewords its answer on every run has to beat that scatter; a system that
+  always answers the same way passes on two cases.
+- **A certificate**, if you ask for one. `CertifiedGate` tests a change on
+  fresh samples and bounds the chance of ever installing a harmful one,
+  however many candidates are tried. The statement and its proof are in
+  [docs/THEORY.md](docs/THEORY.md); the section on certified mode below
+  explains how it works.
+
+```python
+from erratica import Behaviour, CertifiedGate, EGate, GeneratedStream, ReplayGate, all_of
+
+requests = GeneratedStream(make_request)          # fresh inputs, each used once
+gate = all_of(
+    ReplayGate(),                                 # cheap screen first
+    CertifiedGate(
+        EGate(["brevity"], delta=0.05, margin=0.05),
+        protected=[Behaviour("brevity", requests, is_brief)],
+        task=Behaviour("quality", requests, quality_score),
+    ),
+)
+loop = Loop(build=build, config=config, gate=gate)
+```
+
+## A real run
+
+`examples/support_ollama.py` runs the managed loop on `phi4-mini` (3.8B)
+through Ollama on a laptop RTX 4050. Eight support requests are answered
+and scored by five checks (required terms, a numbered list, the order
+number, a commitment to act, a timeframe). All eight failed and were
+recorded. Then:
+
+| Step | Result |
+|---|---|
+| A deliberately bad rule ("single short sentence, avoid detail") | rejected: 0.46 -> 0.41 on the 8 recorded failures |
+| Rule built from the feedback ("Always mention: billing, charge, order, refund, shipment.") | installed: 0.43 -> 0.55 on 3 held-out failures, p = 0.111 against run-to-run noise |
+| 4 requests the loop never got feedback on | 0.46 -> 0.55 (three improved, one unchanged, none worse) |
+
+The gain on unseen requests (+0.09) is close to what the held-out failures
+predicted (+0.12). It is also small, from one model, one run and four
+requests, with checks that are regular expressions. Read it as the loop
+working as designed on a real model, not as a measure of how much a model
+improves.
+
+**Two earlier runs went wrong, and changed the design.** In the first
+version of this example the gate accepted any mean gain above 0.05, and
+unseen requests were scored on fewer criteria than the recorded ones. Both
+times a rule the model wrote for itself was installed on three held-out
+cases (0.46 -> 0.74 and 0.46 -> 0.66) and did nothing for unseen requests
+(0.75 -> 0.75 and 0.75 -> 0.62). Two things came out of that:
+
+- The gate now answers every case twice and asks that a gain stand out from
+  the model's own run-to-run scatter. The same model, given the same prompt
+  twice, produced answers only 0.88 similar in wording.
+- An approved answer's wording is not used as a reference. One harmless
+  added instruction moved wording similarity to earlier answers from 0.88 to
+  0.26, and a harmful one moved it to 0.24, so that signal cannot tell the
+  two apart. An approval protects an answer through checks instead; see
+  [docs/CORE.md](docs/CORE.md).
+
+## The full loop for local models
+
+The `Erratica` class is the original, batteries-included loop for one local
+model. It has what the core does not yet have: routing by domain, recall of
+past corrections at answer time, tools the model writes for itself, and
+fine-tuning. The rest of this page describes it.
 
 ```bash
 erratica demo        # walk through the loop with a built-in simulator
 erratica benchmark   # measure the loop on a small dataset
 ```
 
-## Sixty-second tour
+### Sixty-second tour
 
 ```python
 from erratica import Erratica
@@ -70,7 +241,7 @@ for decision in ai.run_learning_cycle():
     print(decision.patch_type, decision.accepted, decision.validation, decision.reason)
 ```
 
-## How a fix earns its place
+### How a fix earns its place
 
 **Triage.** Failures are grouped by route and issue type. Each group is
 scored with a Wilson lower bound on how consistently it was rated a failure,
@@ -116,7 +287,7 @@ and a patch made redundant by a later one or by a fine-tune is removed.
 policy version counts every promotion and rollback, and each interaction
 records the version that produced it.
 
-## Measured results
+### Measured results
 
 The built-in simulator exists so tests and the demo are deterministic. Its
 numbers show the plumbing working and nothing else. These are from a real
@@ -154,7 +325,7 @@ people. They show the loop doing its job on a real model. They are not a
 benchmark of how much any model improves in general. Run the command on your
 own model and data to get numbers that mean something for you.
 
-## Certified mode
+### Certified mode
 
 The gate described above is a heuristic: a mean has to rise by a fixed
 amount on a handful of held-out cases. Each decision records a p-value so
@@ -303,7 +474,7 @@ installed only the one the independent measurement found harmless, using
 stored data. This is one model, one task, three candidates: an example of
 the gate working as designed, not a measurement of its error rate.
 
-## Bring your own domain
+### Bring your own domain
 
 The loop is domain-agnostic. A domain pack tells it how to recognise a kind
 of task, which rule to try first for a known issue, and how to check an
@@ -333,7 +504,7 @@ support rule never appears in a research prompt.
 
 Support and finance packs are built in as examples.
 
-## Scoring answers
+### Scoring answers
 
 Each signal available for a case contributes a score from 0 to 1: required
 terms, requested format, similarity to a reference answer, the domain pack's
@@ -353,7 +524,7 @@ The default compares wording, not meaning, so it cannot tell that two
 differently phrased answers are equivalent. Use an embedding scorer, or a
 critic, when paraphrases matter.
 
-## Self-review
+### Self-review
 
 A critic model can grade answers nobody rated and try to write better ones:
 
@@ -374,7 +545,7 @@ fraction of its evidence came from people.
 
 A critic only helps if it is meaningfully stronger than the model it grades.
 
-## Learned tools
+### Learned tools
 
 Tools are off unless you pass `enable_tools=True`, because they execute
 generated code. A tool is one function, `run(prompt: str) -> str`, whose
@@ -389,7 +560,7 @@ This is defence in depth for code you are going to read, not a security
 boundary against a determined attacker. Every tool is stored in the audit
 trail with its source. Read it before you rely on it.
 
-## From mistakes to weights
+### From mistakes to weights
 
 ```python
 from erratica import CommandTrainer
@@ -421,7 +592,7 @@ supply that script.
 an audit, and a weight cycle in one pass. Schedule `erratica consolidate` as
 a nightly task to have the model tidy up what it learned while idle.
 
-## Command line
+### Command line
 
 ```text
 erratica demo         walk through the loop
@@ -439,7 +610,7 @@ Model options for the commands that replay: `--ollama NAME`, `--gguf PATH`,
 `--proposer NAME` (an Ollama model that writes rules and tools), `--tools`,
 `--no-think` (for reasoning models).
 
-## Model cards
+### Model cards
 
 `erratica modelcard --db data/erratica.db --name my-model` writes a card from
 the audit trail: what was promoted and how it was validated (held-out or
@@ -458,7 +629,12 @@ training scores side by side. Anyone holding the database can check it.
   evidence, not proof. The audit exists partly to catch patches that looked
   good early and stop helping.
 - Keyword routing is a convenience. Pass `route=` when you know the task.
-- A single SQLite connection is used; share one `Erratica` per process.
+- An approval protects an answer only through checks. In the core, an
+  approval with no check that applies is reported as unguarded. The
+  `Erratica` class compares new answers with the approved wording, and on a
+  real model wording changes with every prompt change (see "A real run"),
+  so give it an embedding scorer or a critic when you approve answers.
+- A single SQLite connection is used; share one `Erratica` or `Loop` per process.
 - Certified mode covers rules, examples, and tools. Fine-tunes are not
   certified, and its guarantee is about your scorers on your evaluation
   stream, not about the world.
@@ -466,8 +642,9 @@ training scores side by side. Anyone holding the database can check it.
 ## Development
 
 ```bash
-python -m unittest        # 141 tests, no dependencies, under a minute
+python -m unittest        # no dependencies, about a minute
 python -m erratica demo
+python examples/quickstart.py
 ```
 
 ## License

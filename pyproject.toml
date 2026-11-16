@@ -1,7 +1,7 @@
 [project]
 name = "erratica"
-version = "0.5.0"
-description = "A learning loop for local LLMs: replay failures, validate fixes on held-out cases, and promote only what measurably helps."
+version = "0.6.0"
+description = "Change control for AI systems: record mistakes, replay them against every candidate fix, and install only what measurably helps."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -17,6 +17,9 @@ keywords = [
     "evaluation",
     "fine-tuning",
     "feedback-loop",
+    "agents",
+    "evals",
+    "regression-testing",
     "llama-cpp",
     "ollama",
 ]

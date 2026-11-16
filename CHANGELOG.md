@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **A composable core, `erratica.core`.** `Loop` wraps any callable
+  `input -> output`, not only a local model, and every stage is an argument
+  you can replace: checks (how an answer is scored), the gate (who decides),
+  proposers (where changes come from) and the store (where the record
+  lives). See [docs/CORE.md](docs/CORE.md).
+  - *Judge mode*: you deploy your own system; `loop.judge(new_version)`
+    replays the recorded mistakes and approved answers and says whether it
+    is safe to ship.
+  - *Managed mode*: the system is built from a configuration, and a change
+    is data (`Change.set`, `Change.append`, `Change.remove`), so the loop
+    can propose, install, audit and roll back changes to anything in the
+    configuration: prompt rules, examples, a model name, a retrieval depth.
+  - Gates: `ReplayGate` (recorded cases), `CertifiedGate` (the e-value gate
+    on fresh samples), `all_of` to chain them, or a plain function.
+  - Stores: in memory, one SQLite file, or your own object.
+  - A gain has to stand out from the system's own noise. Each case is
+    answered twice by each system by default (`repeats`), and `ReplayGate`
+    tests the gain against that run-to-run scatter (`max_p`, 0.2 by
+    default). Cases can be answered in parallel (`workers`).
+- `examples/`: `quickstart.py` and `any_system.py` run with no model and are
+  part of the test suite; `support_ollama.py` runs the loop on a real local
+  model; `crewai_crew.py` puts the loop around a CrewAI crew (run by hand
+  with CrewAI 1.15, not in CI).
+- Judging against an empty record is refused ("nothing to judge on")
+  instead of passing.
+
+### Found
+
+- **Wording similarity cannot guard approved answers on a real model.**
+  Measured on `phi4-mini`: adding one harmless instruction moved the
+  similarity between new answers and the previously approved ones from 0.88
+  to 0.26; a harmful instruction moved it to 0.24. The core therefore does
+  not treat an approved answer's wording as the reference. An approval
+  protects an answer through checks, and a verdict says so when an approval
+  has no check that applies.
+- The `Erratica` class still compares approved answers by wording (its
+  default similarity scorer). Given the measurement above, an approval is
+  likely to block most later prompt rules on its route when the default
+  scorer is used with a real model; this was not re-measured on the class
+  itself. Pass an embedding scorer or a critic, or use the core. This is
+  not fixed in this release.
+
 ## 0.5.0
 
 A rebuild of the validation core, plus the features that depend on it being
